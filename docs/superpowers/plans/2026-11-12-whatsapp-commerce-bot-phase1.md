@@ -15,15 +15,18 @@
 - Node `>=22`; TypeScript `strict: true`; ESM (`"type": "module"`).
 - Money is always integer **paise** (`*_paise` columns, `number` in TS). Format only at the message boundary as `₹1,234` (no decimals when whole, else two).
 - Timezone for all business dates: `Asia/Kolkata` (fixed +05:30). Dates stored as `date` (`YYYY-MM-DD`) for delivery dates, `timestamptz` otherwise.
-- Every business table has `tenant_id uuid not null` and every repo query filters by it.
+- **Tenant config lives in code** (`src/tenants/<id>/config.ts`, type `TenantConfig`), registered in `src/tenants/registry.ts` keyed by `waPhoneNumberId`. Only vendor-editable values live in the `tenants` table (`support_phone`, `delivery_fee_paise`, `min_order_paise`). Rule: if the vendor can edit it from the dashboard → DB; otherwise → code.
+- Every business table has `tenant_id text not null` (FK → `tenants.id`, e.g. `'nutrifarm'`) and every repo query filters by it.
+- Customer-facing order identifier is `order_code` = `<prefix>-<6 chars>` from alphabet `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no 0/O/1/I), unique per tenant, retry on collision. Internal key is `orders.id` (uuid). No counters.
 - No Redis, no queue. Webhook handlers finish their work before responding.
-- Payment link expiry: `30` minutes (tenant column `payment_link_expiry_minutes`, default 30).
-- `message_retention_days` default `3`. `delivery_fee_paise` default `0`. `min_order_paise` default `0`.
+- Payment link expiry: `30` minutes (`TenantConfig.paymentLinkExpiryMinutes`).
+- `TenantConfig.messageRetentionDays` = `3`; `TenantConfig.subscriptionChargeLeadDays` = `2`. DB defaults: `delivery_fee_paise` `0`, `min_order_paise` `0`.
+- Subscription frequency step: `weekly` = 7 days, `biweekly` = 14, `monthly` = 28 (always lands on the pincode weekday). Only `weekly` is offered in the Flow for Phase 1; the column supports all three.
 - Order statuses exactly: `payment_pending | confirmed | assigned | out_for_delivery | delivered | cancelled | payment_failed | expired`.
 - Subscription statuses exactly: `pending_authorization | active | cancelled | authorization_failed`.
 - Graph API base: `https://graph.facebook.com/${GRAPH_API_VERSION}`; `GRAPH_API_VERSION` is an env var — set it to the latest stable version from Meta's changelog at implementation time.
 - Cashfree base: sandbox `https://sandbox.cashfree.com/pg`, prod `https://api.cashfree.com/pg`; header `x-api-version: 2025-01-01`. Before coding each Cashfree call, confirm field names against cashfree.com/docs (API reference, latest) — the adapter interface in this plan is fixed, the wire format must match the docs.
-- English only. All customer-facing copy lives in `src/tenants/<slug>/copy.ts`.
+- English only. All customer-facing copy lives in `src/tenants/<id>/copy.ts`.
 - Send messages to `wa_id` when known, otherwise to the BSUID `user_id`.
 - Tests: Vitest; DB tests run on PGlite with the real Drizzle migrations; never call real WhatsApp/Cashfree in tests.
 - Commit after every task with Conventional Commit messages.
@@ -52,10 +55,12 @@ src/
   domain/money.ts                  # formatPaise, sumLines
   domain/delivery-date.ts          # nextDeliveryDate, formatDeliveryDate
   domain/pincode.ts                # normalizePincode
-  tenants/types.ts                 # Tenant, TenantCopy
-  tenants/tenant-repo.ts           # findTenantByPhoneNumberId, getTenant
-  tenants/copy-registry.ts         # copyFor(tenant)
+  tenants/types.ts                 # TenantConfig, TenantCopy, TenantSettings
+  tenants/registry.ts              # tenantByPhoneNumberId, tenantById, allTenants
+  tenants/settings-repo.ts         # getTenantSettings (vendor-editable row)
+  tenants/nutrifarm/config.ts      # NutriFarm constants
   tenants/nutrifarm/copy.ts        # NutriFarm message texts
+  domain/order-code.ts             # generateOrderCode
   channels/whatsapp/signature.ts   # verifyMetaSignature
   channels/whatsapp/webhook-schema.ts  # zod schema for webhook payload
   channels/whatsapp/parse.ts       # parseWebhook → InboundMessage[]
@@ -66,7 +71,7 @@ src/
   messages/message-store.ts        # recordInbound (dedupe), recordOutbound, purgeOlderThan
   catalog/catalog-repo.ts          # listActiveProducts, findPincode
   orders/order-repo.ts             # insert/find/update orders + items
-  orders/order-service.ts          # createPendingOrder, confirmPaidOrder, updateStatus, refundOrder, expireStale
+  orders/order-service.ts          # createOrder, startPayment, confirmPaidOrder, updateStatus, refundOrder, expireStale
   payments/provider.ts             # PaymentProvider port + types
   payments/cashfree/client.ts      # CashfreeProvider implements PaymentProvider
   payments/cashfree/webhook.ts     # verifyCashfreeSignature, parseCashfreeEvent
@@ -83,7 +88,7 @@ src/
   jobs/daily.ts                    # runDailyJob
 scripts/
   seed.ts                          # tenant + products + pincodes for NutriFarm
-  publish-flows.ts                 # build & publish Flow JSON, store flow ids on tenant
+  publish-flows.ts                 # build & publish Flow JSON once, print flow ids to paste into config.ts
   orders.ts                        # CLI: assign | out-for-delivery | delivered | cancel | refund
 tests/
   helpers/test-db.ts               # PGlite + migrations + factory helpers
@@ -154,26 +159,26 @@ it('GET /health → 200 {ok:true}', async () => {
 - Test: `tests/db/schema.test.ts`
 
 **Interfaces:**
-- Produces: `Db` type (Drizzle instance, works for both postgres-js and PGlite); `createDb(url: string): Db` (postgres-js with `prepare: false` for the Supabase transaction pooler, `max: 5`); `createTestDb(): Promise<Db>` (PGlite + `migrate` from `src/db/migrations`); factories `seedTenant(db, overrides?) → Tenant`, `seedProduct(db, tenantId, overrides?)`, `seedPincode(db, tenantId, pincode, weekday)`, `seedCustomer(db, tenantId, overrides?)`.
-- Tables (all `id uuid pk default gen_random_uuid()`, `created_at timestamptz default now()`):
-  - `tenants`: `slug` unique, `name`, `wa_phone_number_id` unique, `waba_id`, `wa_token_env` (env var name holding the access token), `cashfree_app_id_env`, `cashfree_secret_env`, `support_phone`, `order_prefix` (e.g. `NF`), `next_order_number int default 1001`, `order_flow_id` null, `subscribe_flow_id` null, `delivery_fee_paise int default 0`, `min_order_paise int default 0`, `payment_link_expiry_minutes int default 30`, `message_retention_days int default 3`, `subscription_charge_lead_days int default 2`.
-  - `customers`: `tenant_id`, `wa_key` (= `user_id ?? wa_id`), `wa_id` null, `bsuid` null, `profile_name` null, `email` null, `default_address jsonb` null; unique(`tenant_id`,`wa_key`).
+- Produces: `Db` type (Drizzle instance, works for both postgres-js and PGlite); `createDb(url: string): Db` (postgres-js with `prepare: false` for the Supabase transaction pooler, `max: 5`); `createTestDb(): Promise<Db>` (PGlite + `migrate` from `src/db/migrations`); factories `seedTenantRow(db, id = 'test', overrides?)`, `seedProduct(db, tenantId, overrides?)`, `seedPincode(db, tenantId, pincode, weekday)`, `seedCustomer(db, tenantId, overrides?)`; `testTenant(overrides?): TenantConfig` (a config object with id `'test'`, fake env names, flow ids `'flow-order'`/`'flow-sub'`, prefix `'TS'`).
+- Tables (all except `tenants` have `id uuid pk default gen_random_uuid()`; all have `created_at timestamptz default now()`):
+  - `tenants`: `id text pk` (matches `TenantConfig.id`), `support_phone text`, `delivery_fee_paise int default 0`, `min_order_paise int default 0`, `updated_at`. Nothing else — constants live in `TenantConfig`.
+  - `customers`: `tenant_id`, `wa_key` (= `user_id ?? wa_id`), `wa_id` null, `bsuid` null, `profile_name` null, `email` null, `default_address jsonb` null, `default_location jsonb` null (`{lat: number, lng: number}`); unique(`tenant_id`,`wa_key`).
   - `products`: `tenant_id`, `sku`, `name`, `price_paise`, `active bool default true`, `sort_order int`; unique(`tenant_id`,`sku`).
   - `pincodes`: `tenant_id`, `pincode char(6)`, `delivery_weekday smallint` (0=Sun…6=Sat), `active bool default true`, `note` null; unique(`tenant_id`,`pincode`).
-  - `orders`: `tenant_id`, `order_number text` unique per tenant, `customer_id`, `source` enum(`one_time`,`subscription`), `subscription_id` null, `status` enum (Global Constraints), `delivery_date date`, `address jsonb`, `pincode`, `subtotal_paise`, `delivery_fee_paise`, `total_paise`, `assigned_partner_id` null, `paid_at` null, `delivered_at` null, `updated_at`.
+  - `orders`: `tenant_id`, `order_code text` (unique(`tenant_id`,`order_code`)), `customer_id`, `source` enum(`one_time`,`subscription`), `subscription_id` null, `status` enum (Global Constraints), `delivery_date date`, `address jsonb`, `location jsonb` null, `pincode`, `subtotal_paise`, `delivery_fee_paise`, `total_paise`, `assigned_partner_id` null, `paid_at` null, `delivered_at` null, `updated_at`.
   - `order_items`: `order_id`, `product_id`, `name`, `unit_price_paise`, `quantity`, `line_total_paise`.
-  - `payments`: `tenant_id`, `order_id`, `provider` (`cashfree`), `kind` enum(`link`,`subscription_charge`), `provider_ref` unique (link_id / charge payment_id), `amount_paise`, `status` enum(`created`,`paid`,`failed`,`expired`,`refunded`), `link_url` null, `raw jsonb` null, `updated_at`.
-  - `subscriptions`: `tenant_id`, `customer_id`, `status` enum (Global Constraints), `address jsonb`, `pincode`, `delivery_weekday`, `per_delivery_total_paise`, `next_delivery_date date` null, `provider_subscription_id` unique, `auth_link` null, `updated_at`.
+  - `payments`: `tenant_id`, `order_id` **null** (null for a subscription charge until it succeeds), `subscription_id` null, `for_delivery_date date` null, `charge_items jsonb` null (`{productId, name, unitPricePaise, quantity}[]` snapshot of what a subscription charge is for), `provider` (`cashfree`), `kind` enum(`link`,`subscription_charge`), `provider_ref` unique (link_id / charge payment_id), `amount_paise`, `status` enum(`created`,`paid`,`failed`,`expired`,`refunded`), `link_url` null, `raw jsonb` null, `updated_at`; unique(`subscription_id`,`for_delivery_date`) — makes a double charge for the same delivery impossible.
+  - `subscriptions`: `id` (ours; also sent to Cashfree as the merchant `subscription_id`), `tenant_id`, `customer_id`, `status` enum (Global Constraints), `frequency` enum(`weekly`,`biweekly`,`monthly`) default `weekly`, `address jsonb`, `location jsonb` null, `pincode`, `delivery_weekday`, `per_delivery_total_paise`, `next_delivery_date date` null, `cf_subscription_id` unique null (Cashfree's own id), `auth_link` null, `updated_at`.
   - `subscription_items`: `subscription_id`, `product_id`, `quantity`.
   - `delivery_partners`: `tenant_id`, `name`, `phone`, `active`.
   - `messages`: `tenant_id`, `customer_id`, `direction` enum(`in`,`out`), `wa_message_id` unique null (outbound failures may have none), `type`, `text` null (human-readable summary), `payload jsonb`.
   - `Address` JSON shape: `{ name: string; line1: string; landmark?: string; pincode: string }`.
 
-- [ ] **Step 1: Write failing test** `tests/db/schema.test.ts`: `createTestDb()` then insert a tenant + customer; inserting a second customer with the same (`tenant_id`,`wa_key`) rejects; inserting a message twice with the same `wa_message_id` rejects.
+- [ ] **Step 1: Write failing test** `tests/db/schema.test.ts`: `createTestDb()` then insert a tenant row + customer; inserting a second customer with the same (`tenant_id`,`wa_key`) rejects; inserting a message twice with the same `wa_message_id` rejects; two `payments` with the same (`subscription_id`,`for_delivery_date`) reject; two orders with the same (`tenant_id`,`order_code`) reject.
 - [ ] **Step 2: Run** `pnpm test tests/db` → FAIL.
 - [ ] **Step 3: Implement** `schema.ts`, `client.ts`, `drizzle.config.ts`; run `pnpm db:generate` to produce the first migration; implement `createTestDb` and factories.
 - [ ] **Step 4: Run** `pnpm test tests/db` → PASS.
-- [ ] **Step 5: Seed script** `scripts/seed.ts` (idempotent upserts) for NutriFarm: tenant `slug=nutrifarm`, `name='NutriFarm Eggs'`, `order_prefix='NF'`, `wa_phone_number_id`/`waba_id` from env `SEED_WA_PHONE_NUMBER_ID`/`SEED_WABA_ID`, token env name `NUTRIFARM_WA_TOKEN`, Cashfree env names `NUTRIFARM_CF_APP_ID`/`NUTRIFARM_CF_SECRET`, `support_phone` from `SEED_SUPPORT_PHONE`; products `EGG_W_6`, `EGG_W_12`, `EGG_W_30` (names "White Eggs – 6 pack" etc.; prices are read from `SEED_PRICE_EGG_W_6` etc. so real prices never live in git); pincode `560035` → weekday 3 (Wednesday). Run against a local Postgres or the Supabase dev project and verify rows exist.
+- [ ] **Step 5: Seed script** `scripts/seed.ts` (idempotent upserts) for NutriFarm: `tenants` row `id='nutrifarm'`, `support_phone` from `SEED_SUPPORT_PHONE`; products `EGG_W_6`, `EGG_W_12`, `EGG_W_30` (names "White Eggs – 6 pack" etc.; prices are read from `SEED_PRICE_EGG_W_6` etc. so real prices never live in git); pincode `560035` → weekday 3 (Wednesday). Run against a local Postgres or the Supabase dev project and verify rows exist.
 - [ ] **Step 6: Commit** `feat(db): schema, migrations, test db helper and seed`
 
 ---
@@ -185,7 +190,9 @@ it('GET /health → 200 {ok:true}', async () => {
 - Test: `tests/domain/*.test.ts`
 
 **Interfaces:**
-- Produces: `formatPaise(p: number): string`; `normalizePincode(raw: string): string | null`; `nextDeliveryDate(now: Date, weekday: number): string` (returns `YYYY-MM-DD` in IST); `formatDeliveryDate(isoDate: string): string` (e.g. `Wed, 18 Nov`).
+- Create also: `src/domain/order-code.ts`.
+- Produces: `formatPaise(p: number): string`; `normalizePincode(raw: string): string | null`; `nextDeliveryDate(now: Date, weekday: number): string` (returns `YYYY-MM-DD` in IST); `formatDeliveryDate(isoDate: string): string` (e.g. `Wed, 18 Nov`); `addDays(isoDate: string, days: number): string`; `frequencyStepDays(f: 'weekly'|'biweekly'|'monthly'): 7|14|28`; `generateOrderCode(prefix: string, random?: (n: number) => Uint8Array): string` (default uses `crypto.getRandomValues`).
+- Extra tests: `generateOrderCode('NF')` matches `/^NF-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/`; with an injected deterministic `random` it returns a known value; `addDays('2026-11-18', 28) === '2026-12-16'`; `frequencyStepDays('monthly') === 28`.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -213,7 +220,7 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 ### Task 4: WhatsApp webhook ingress — verification, signature, parsing, tenant resolution
 
 **Files:**
-- Create: `src/channels/whatsapp/signature.ts`, `src/channels/whatsapp/webhook-schema.ts`, `src/channels/whatsapp/parse.ts`, `src/tenants/types.ts`, `src/tenants/tenant-repo.ts`, `src/ingress/whatsapp-routes.ts`
+- Create: `src/channels/whatsapp/signature.ts`, `src/channels/whatsapp/webhook-schema.ts`, `src/channels/whatsapp/parse.ts`, `src/tenants/types.ts`, `src/tenants/registry.ts`, `src/tenants/settings-repo.ts`, `src/tenants/nutrifarm/config.ts`, `src/ingress/whatsapp-routes.ts`
 - Modify: `src/app.ts` (mount routes)
 - Test: `tests/channels/whatsapp/parse.test.ts`, `tests/channels/whatsapp/signature.test.ts`, `tests/ingress/whatsapp-routes.test.ts`, `tests/fixtures/wa/*.json`
 
@@ -228,18 +235,34 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
       | { kind: 'text'; text: string }
       | { kind: 'button'; replyId: string; title: string }          // button_reply and list_reply
       | { kind: 'flow_submit'; flowToken: string; response: Record<string, unknown> } // nfm_reply
+      | { kind: 'location'; lat: number; lng: number }
       | { kind: 'other'; waType: string });
     ```
   - `parseWebhook(body: unknown): InboundMessage[]` — ignores `statuses`, `errors`, and non-`messages` fields; `from.bsuid` from `contacts[].user_id`, `from.waId` from `messages[].from`/`contacts[].wa_id` (either may be absent).
-  - `Tenant` type (row of `tenants`); `findTenantByPhoneNumberId(db, id): Promise<Tenant | null>`.
-  - `buildApp(deps, opts?: { onInbound?: (tenant: Tenant, msg: InboundMessage) => Promise<void> })`. Route `POST /webhooks/whatsapp` calls `onInbound(tenant, msg)` for each message (default wired to `handleInbound` in Task 7; tests inject a spy). Unknown tenant → log warn, still 200.
+  - `TenantConfig` (in `tenants/types.ts`):
+    ```ts
+    interface TenantConfig {
+      id: string; name: string;
+      waPhoneNumberId: string; wabaId: string; waTokenEnv: string;
+      cashfree: { appIdEnv: string; secretEnv: string };
+      flows: { orderFlowId: string; subscribeFlowId: string };
+      orderCodePrefix: string;
+      paymentLinkExpiryMinutes: number; subscriptionChargeLeadDays: number; messageRetentionDays: number;
+      copy: TenantCopy;   // TenantCopy defined in Task 6; use `unknown` until then
+    }
+    ```
+    Every later signature that says `tenant` means `TenantConfig`.
+  - `registry.ts`: `registerTenants(list: TenantConfig[])` (throws on duplicate `id` or `waPhoneNumberId`), `tenantByPhoneNumberId(id): TenantConfig | null`, `tenantById(id): TenantConfig | null`, `allTenants(): TenantConfig[]`. `index.ts` calls `registerTenants([nutrifarm])` at boot.
+  - `nutrifarm/config.ts`: real `waPhoneNumberId`/`wabaId` (from the WhatsApp Business MCP, business `organic_nutri_farm`), `waTokenEnv: 'NUTRIFARM_WA_TOKEN'`, `cashfree: { appIdEnv: 'NUTRIFARM_CF_APP_ID', secretEnv: 'NUTRIFARM_CF_SECRET' }`, `orderCodePrefix: 'NF'`, `30` / `2` / `3`; flow ids are empty strings until Task 8 publishes them.
+  - `settings-repo.ts`: `type TenantSettings = { supportPhone: string; deliveryFeePaise: number; minOrderPaise: number }`; `getTenantSettings(db, tenantId): Promise<TenantSettings>` (throws if the row is missing).
+  - `buildApp(deps, opts?: { onInbound?: (tenant: TenantConfig, msg: InboundMessage) => Promise<void> })`. Tenant is resolved with `tenantByPhoneNumberId` — no DB read. Route `POST /webhooks/whatsapp` calls `onInbound(tenant, msg)` for each message (default wired to `handleInbound` in Task 7; tests inject a spy). Unknown tenant → log warn, still 200.
   - Route `GET /webhooks/whatsapp` echoes `hub.challenge` when `hub.mode=subscribe` and token matches, else 403.
 
-- [ ] **Step 1: Fixtures** — save realistic payloads under `tests/fixtures/wa/`: `text.json`, `button-reply.json`, `list-reply.json`, `flow-nfm-reply.json`, `statuses-only.json`, `text-username-no-phone.json` (contacts has `user_id` + `profile.username`, no `wa_id`/`from`), `image.json`.
+- [ ] **Step 1: Fixtures** — save realistic payloads under `tests/fixtures/wa/`: `text.json`, `button-reply.json`, `list-reply.json`, `flow-nfm-reply.json`, `statuses-only.json`, `text-username-no-phone.json` (contacts has `user_id` + `profile.username`, no `wa_id`/`from`), `image.json`, `location.json`.
 - [ ] **Step 2: Write failing tests**
   - parse: each fixture maps to the expected `kind`; `statuses-only.json` → `[]`; username fixture → `from.waId === null && from.bsuid === 'IN.…'`; `flow-nfm-reply` → `response` is the parsed `response_json` object and `flowToken` its `flow_token`.
   - signature: valid header → true; tampered body → false; missing header → false.
-  - routes: GET with right token → 200 body = challenge; wrong token → 403. POST with bad signature → 401 and `onInbound` not called. POST statuses-only with good signature → 200, `onInbound` not called. POST text → `onInbound` called once with tenant resolved by `phone_number_id` (seed tenant in PGlite).
+  - routes: GET with right token → 200 body = challenge; wrong token → 403. POST with bad signature → 401 and `onInbound` not called. POST statuses-only with good signature → 200, `onInbound` not called. POST text → `onInbound` called once with the tenant registered for that `phone_number_id` (register `testTenant()` in the test); unknown `phone_number_id` → 200, `onInbound` not called. Registry: duplicate `waPhoneNumberId` throws.
 - [ ] **Step 3: Run** → FAIL.
 - [ ] **Step 4: Implement.** Read raw body with `c.req.text()` before JSON-parsing (signature needs exact bytes). Zod schema is permissive (`passthrough`) — validate only fields we read.
 - [ ] **Step 5: Run** → PASS.
@@ -275,7 +298,7 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 ### Task 6: WhatsApp sender, payload builders, tenant copy
 
 **Files:**
-- Create: `src/channels/whatsapp/builders.ts`, `src/channels/whatsapp/sender.ts`, `src/tenants/copy-registry.ts`, `src/tenants/nutrifarm/copy.ts`, `tests/helpers/fakes.ts` (extend)
+- Create: `src/channels/whatsapp/builders.ts`, `src/channels/whatsapp/sender.ts`, `src/tenants/nutrifarm/copy.ts`, `tests/helpers/fakes.ts` (extend)
 - Modify: `src/deps.ts` (type `whatsapp: WhatsAppSender`)
 - Test: `tests/channels/whatsapp/builders.test.ts`, `tests/channels/whatsapp/sender.test.ts`
 
@@ -283,10 +306,10 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 - Produces:
   - Builders return the Graph `messages` body without `to`/`messaging_product`:
     `textMsg(body)`, `replyButtonsMsg(body, buttons: {id: string; title: string}[] /*1–3, title ≤20 chars*/)`, `ctaUrlMsg({ body, buttonText /*≤20*/, url, footer? })`, `flowMsg({ body, flowId, flowToken, cta /*≤20*/, screen, data })` (interactive `flow`, `flow_message_version: "3"`, `flow_action: "navigate"`, `flow_action_payload: { screen, data }`), `templateMsg(name, lang, bodyParams: string[])`.
-  - `interface WhatsAppSender { send(tenant: Tenant, to: string, message: OutboundMessage): Promise<{ waMessageId: string }> }`.
-  - `GraphWhatsAppSender(env, fetchImpl = fetch)` — POST `${base}/${tenant.wa_phone_number_id}/messages` with `Authorization: Bearer ${process.env[tenant.wa_token_env]}`; throws `WhatsAppSendError` (status + Meta error code) on non-2xx.
+  - `interface WhatsAppSender { send(tenant: TenantConfig, to: string, message: OutboundMessage): Promise<{ waMessageId: string }> }`.
+  - `GraphWhatsAppSender(env, fetchImpl = fetch)` — POST `${base}/${tenant.waPhoneNumberId}/messages` with `Authorization: Bearer ${process.env[tenant.waTokenEnv]}`; throws `WhatsAppSendError` (status + Meta error code) on non-2xx.
   - `sendAndLog(deps, tenant, customer, message, summaryText): Promise<void>` — sends via `deps.whatsapp` to `recipientOf(customer)` and calls `recordOutbound`; on send failure still records the outbound row with `waMessageId: null` and rethrows.
-  - `TenantCopy` interface (in `tenants/types.ts`) with functions: `welcome(name: string|null)`, `help()`, `orderFlowIntro()`, `subscribeFlowIntro()`, `noItems()`, `invalidPincode(raw)`, `notServiceable(pincode)`, `orderSummary(o: {orderNumber; lines: {name; qty; lineTotal: string}[]; total: string; deliveryDate: string})`, `orderConfirmed({orderNumber; deliveryDate})`, `subscriptionSummary({lines; perDelivery: string; weekdayName: string; firstDelivery: string})`, `subscriptionActive({firstDelivery})`, `myOrders(rows: {orderNumber; status; deliveryDate; total}[], subs: {perDelivery; weekdayName; nextDelivery}[])`, `invalidEmail()`, `genericError()`. `copyFor(tenant: Tenant): TenantCopy` looks up by `tenant.slug`.
+  - `TenantCopy` interface (in `tenants/types.ts`) with functions: `welcome(name: string|null)`, `help()`, `orderFlowIntro()`, `subscribeFlowIntro()`, `noItems()`, `invalidPincode(raw)`, `notServiceable(pincode)`, `orderSummary(o: {orderNumber; lines: {name; qty; lineTotal: string}[]; total: string; deliveryDate: string})`, `orderConfirmed({orderCode; deliveryDate})`, `subscriptionSummary({lines; perDelivery: string; weekdayName: string; firstDelivery: string})`, `subscriptionActive({firstDelivery})`, `myOrders(rows: {orderCode; status; deliveryDate; total}[], subs: {perDelivery; weekdayName; nextDelivery}[])`, `invalidEmail()`, `genericError()`, `askLocation()`, `locationSaved()`. Accessed as `tenant.copy` (no separate registry).
   - `FakeWhatsAppSender` records `{to, message}[]` and returns incrementing `wamid.fake.N`.
 
 - [ ] **Step 1: Write failing tests** — builders produce exactly the Graph shapes (snapshot each builder once); `replyButtonsMsg` throws for >3 buttons or title >20 chars; `GraphWhatsAppSender` with a stub `fetchImpl` hits the right URL/headers and maps a 400 to `WhatsAppSendError`; `sendAndLog` writes one `messages` row with direction `out`.
@@ -304,16 +327,17 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 - Test: `tests/bot/router.test.ts`
 
 **Interfaces:**
-- Consumes: `upsertCustomer`, `recordInbound`, `sendAndLog`, `copyFor`.
+- Consumes: `upsertCustomer`, `recordInbound`, `sendAndLog`, `tenant.copy`, `getTenantSettings`.
 - Produces:
   - Button ids (constants in `router.ts`): `menu:order`, `menu:subscribe`, `menu:my_orders`, `menu:help`.
   - Flow token format: `${'order'|'subscribe'}:${customerId}:${randomId}`.
   - `handleInbound(deps, tenant, msg): Promise<void>`: upsert customer → `recordInbound` (return early if duplicate) → dispatch:
     - `button menu:order` → `sendOrderFlow` (Task 8); `menu:subscribe` → `sendSubscribeFlow` (Task 13); `menu:my_orders` → `sendMyOrders` (Task 12); `menu:help` → `sendHelp`.
     - `flow_submit` with token prefix `order:` → `onOrderFlowSubmit`; `subscribe:` → `onSubscribeFlowSubmit`.
+    - `location` → `onLocationShared` (Task 11).
     - anything else → `sendMenu`.
     - Any thrown error → log, `sendAndLog(copy.genericError())` (best effort), never rethrow (webhook must 200).
-  - `sendMenu(deps, tenant, customer)`: reply buttons Order Eggs / Subscribe / My Orders with the welcome text; `sendHelp`: CTA-URL button `tel:+<support_phone>`.
+  - `sendMenu(deps, tenant, customer)`: reply buttons Order Eggs / Subscribe / My Orders with the welcome text; `sendHelp`: CTA-URL button `tel:+<settings.supportPhone>` (read via `getTenantSettings`, so the vendor can change it from the dashboard).
   - Until Tasks 8/12/13 exist, those dispatch targets are stubs that call `sendMenu`; each later task replaces its stub.
 
 - [ ] **Step 1: Write failing tests** (PGlite + FakeWhatsAppSender): text "hi" → one outbound reply-buttons message with ids above, inbound + outbound rows in `messages`; same inbound delivered twice → only one reply; `menu:help` → CTA with `tel:` URL; image message → menu; handler throwing → generic error sent and `handleInbound` resolves.
@@ -331,18 +355,20 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 **Interfaces:**
 - Produces:
   - `listActiveProducts(db, tenantId): Promise<Product[]>` (ordered by `sort_order`); `findActivePincode(db, tenantId, pincode): Promise<Pincode | null>`.
-  - `buildOrderFlowJson(products: Pick<Product,'sku'>[]): object` — Flow JSON (latest version listed in Meta's Flow JSON changelog), no `data_api_version` (no endpoint). Screens:
-    - `PRODUCTS`: for each product a `Dropdown` named `qty_<sku>` with options `"0"`…`"10"`, `init-value "0"`, `label: "${data.label_<sku>}"`; footer "Next" → `navigate` to `ADDRESS` passing all `qty_*`.
+  - `MAX_PRODUCT_SLOTS = 8` (constant in `flows.ts`). The Flow JSON is **product-independent**, so it is published once and its id is a code constant; products stay fully dynamic from the DB.
+  - `buildOrderFlowJson(): object` — Flow JSON (latest version listed in Meta's Flow JSON changelog), no `data_api_version` (no endpoint). Screens:
+    - `PRODUCTS`: for slot `i` in `1..8` a `Dropdown` named `qty_<i>` with options `"0"`…`"10"`, `init-value "0"`, `label: "${data.label_<i>}"`, `visible: "${data.show_<i>}"`; footer "Next" → `navigate` to `ADDRESS` passing all `qty_*`.
     - `ADDRESS` (terminal): `TextInput name` (required), `TextArea line1` (required), `TextInput landmark` (optional), `TextInput pincode` (required, `input-type: number`), each with `init-value` bound to `${data.prefill_*}`; footer "Continue" → `complete` with payload of all `qty_*` + address fields.
     - Screen `data` declarations include `__example__` values for every bound key.
-  - `orderFlowData(products: Product[], prefill: Address | null): Record<string, string>` → `{ label_<sku>: "<name> — ₹<price>", prefill_name, prefill_line1, prefill_landmark, prefill_pincode }` (empty strings when no prefill).
-  - `publishFlow(env, tenant, name: string, flowJson: object): Promise<string /*flow id*/>` — `POST /{waba_id}/flows` with `name`, `categories: ["SHOPPING"]`, `flow_json`, `publish: true` (confirm field names in the Flows API reference).
-  - `scripts/publish-flows.ts <tenantSlug>` builds both flows (subscribe flow arrives in Task 13; until then only order), publishes, writes ids to `tenants.order_flow_id` / `subscribe_flow_id`. Re-run whenever products are added/removed (labels/prices are dynamic and need no republish).
-  - `sendOrderFlow(deps, tenant, customer)`: `flowMsg({ body: copy.orderFlowIntro(), flowId: tenant.order_flow_id, flowToken: 'order:<customerId>:<nanoid>', cta: 'Order now', screen: 'PRODUCTS', data: orderFlowData(...) })`.
+  - `orderFlowData(products: Product[], prefill: Address | null): { data: Record<string, string | boolean>; slotMap: Record<string, string /*productId*/> }` — product `k` (by `sort_order`) goes to slot `k+1`: `label_<i> = "<name> — ₹<price>"`, `show_<i> = true`; unused slots `show_<i> = false`, `label_<i> = ""`; plus `prefill_name/line1/landmark/pincode` (empty strings when no prefill). Throws if more than 8 active products.
+  - The `slotMap` is encoded into the flow token so the submit handler knows which product each slot meant even if products changed meanwhile: token = `order:<customerId>:<base64url(JSON.stringify(slotMap))>` (8 uuids ≈ 400 chars; confirm Meta's flow_token length limit, else store slotMap in the inbound/outbound `messages.payload` and put a short id in the token).
+  - `publishFlow(env, tenant, name: string, flowJson: object): Promise<string /*flow id*/>` — `POST /{tenant.wabaId}/flows` with `name`, `categories: ["SHOPPING"]`, `flow_json`, `publish: true` (confirm field names in the Flows API reference).
+  - `scripts/publish-flows.ts <tenantId>` builds the flows (subscribe flow arrives in Task 13), publishes, **prints** the ids; the developer pastes them into `tenants/<id>/config.ts`. Only re-run if the Flow *layout* changes (never for product/price changes).
+  - `sendOrderFlow(deps, tenant, customer)`: `flowMsg({ body: tenant.copy.orderFlowIntro(), flowId: tenant.flows.orderFlowId, flowToken, cta: 'Order now', screen: 'PRODUCTS', data })`.
 
-- [ ] **Step 1: Write failing tests** — `buildOrderFlowJson` for skus `[A,B]` contains dropdowns `qty_A`, `qty_B`, ADDRESS footer `complete` payload has keys `qty_A, qty_B, name, line1, landmark, pincode`; every `${data.x}` reference has a matching `__example__`. `orderFlowData` label for price 9000 = `"White Eggs – 6 pack — ₹90"`. `sendOrderFlow` sends a flow message whose token starts with `order:<customerId>:` and whose data prefill comes from `customer.default_address`.
+- [ ] **Step 1: Write failing tests** — `buildOrderFlowJson()` contains dropdowns `qty_1`…`qty_8` each with `visible: "${data.show_<i>}"`; ADDRESS footer `complete` payload has keys `qty_1..qty_8, name, line1, landmark, pincode`; every `${data.x}` reference has a matching `__example__`. `orderFlowData` with 3 products → `show_1..3 = true`, `show_4..8 = false`, label for price 9000 = `"White Eggs – 6 pack — ₹90"`, `slotMap['1']` = first product id; 9 products → throws. `sendOrderFlow` sends a flow message with `flowId === tenant.flows.orderFlowId`, token starting with `order:<customerId>:`, prefill from `customer.default_address`.
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4: Run** → PASS.
-- [ ] **Step 5: Validate for real:** run `pnpm tsx scripts/publish-flows.ts nutrifarm` against the real WABA (needs `NUTRIFARM_WA_TOKEN`); confirm publish succeeds and the Flow renders when sent to your own phone (temporarily wire `menu:order`).
+- [ ] **Step 5: Validate for real:** run `pnpm tsx scripts/publish-flows.ts nutrifarm` against the real WABA (needs `NUTRIFARM_WA_TOKEN`); paste the printed id into `nutrifarm/config.ts`; confirm the Flow renders with only the 3 seeded products visible when sent to your own phone.
 - [ ] **Step 6: Commit** `feat(flows): order flow json, publisher script and flow send`
 
 ---
@@ -356,12 +382,12 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 
 **Interfaces:**
 - Produces:
-  - `parseOrderSubmission(response: Record<string, unknown>, products: Product[]): { lines: {product: Product; quantity: number}[]; address: Address } | { error: 'no_items' | 'invalid_pincode' ; raw?: string }` — ignores unknown `qty_*` keys and non-integer/negative values (treated as 0); pincode via `normalizePincode`.
-  - `createPendingOrder(deps, tenant, customer, input: { lines; address; source: 'one_time' | 'subscription'; subscriptionId?: string; deliveryDate: string }): Promise<OrderWithItems>` — in one transaction: `UPDATE tenants SET next_order_number = next_order_number + 1 RETURNING` → `order_number = ${order_prefix}-${n}`; totals: `subtotal = Σ unit_price × qty` using **DB prices**, `delivery_fee = tenant.delivery_fee_paise`, `total = subtotal + fee`; status `payment_pending`.
-  - `OrderWithItems = Order & { items: OrderItem[] }`; repo: `findOrderById`, `findOrderByNumber(db, tenantId, number)`, `listRecentOrders(db, tenantId, customerId, limit)`.
-  - `onOrderFlowSubmit(deps, tenant, customer, msg)`: parse → on `no_items` send `copy.noItems()`; on invalid pincode send `copy.invalidPincode(raw)`; pincode not in `pincodes` (active) → `copy.notServiceable(pincode)`; else save default address, compute `nextDeliveryDate(deps.now(), pincode.delivery_weekday)`, `createPendingOrder`, then `startPayment` (Task 11; stub sends the summary text without a button for now).
+  - `parseOrderSubmission(response: Record<string, unknown>, slotMap: Record<string,string>, products: Product[]): { lines: {product: Product; quantity: number}[]; address: Address } | { error: 'no_items' | 'invalid_pincode' ; raw?: string }` — maps `qty_<i>` → product via `slotMap`; ignores slots whose product is no longer active, unknown keys and non-integer/negative values (treated as 0); pincode via `normalizePincode`.
+  - `createOrder(deps, tenant, customer, input: { lines; address; location: {lat;lng} | null; status: 'payment_pending' | 'confirmed'; source: 'one_time' | 'subscription'; subscriptionId?: string; deliveryDate: string; unitPrices?: Record<string, number> /* productId → paise; overrides DB price (subscription charges) */ }): Promise<OrderWithItems>` — `order_code = generateOrderCode(tenant.orderCodePrefix)`, retry up to 3 times on unique violation; totals: `subtotal = Σ unit_price × qty` using **DB prices** unless `unitPrices` given, `delivery_fee = settings.deliveryFeePaise`, `total = subtotal + fee`. Order + items in one transaction.
+  - `OrderWithItems = Order & { items: OrderItem[] }`; repo: `findOrderById`, `findOrderByCode(db, tenantId, code)`, `listRecentOrders(db, tenantId, customerId, limit)`.
+  - `onOrderFlowSubmit(deps, tenant, customer, msg)`: parse → on `no_items` send `copy.noItems()`; on invalid pincode send `copy.invalidPincode(raw)`; pincode not in `pincodes` (active) → `copy.notServiceable(pincode)`; else save default address, compute `nextDeliveryDate(deps.now(), pincode.delivery_weekday)`, `createOrder({ status: 'payment_pending', source: 'one_time', location: customer.default_location, … })`, then `startPayment` (Task 11; stub sends the summary text without a button for now).
 
-- [ ] **Step 1: Write failing tests** — all-zero quantities → `noItems` message, zero orders in DB; pincode `" 560 035"` accepted; `"56003"` → invalid message; serviceable but unknown pincode `110001` → notServiceable; valid submit (2×6-pack @ ₹90, 1×30-pack @ ₹420) → order `NF-1001`, `total_paise = 60000`, delivery date = next Wednesday from fixed clock, two `order_items`, address saved as customer default; second order → `NF-1002`; a tampered price in the submission is ignored (DB price used).
+- [ ] **Step 1: Write failing tests** — all-zero quantities → `noItems` message, zero orders in DB; pincode `" 560 035"` accepted; `"56003"` → invalid message; serviceable but unknown pincode `110001` → notServiceable; valid submit (2×6-pack @ ₹90, 1×30-pack @ ₹420) → one order with `order_code` matching `/^TS-[A-Z2-9]{6}$/`, `total_paise = 60000`, delivery date = next Wednesday from fixed clock, two `order_items`, address saved as customer default; a forced order-code collision (injected `random`) retries and succeeds; a slot whose product was deactivated after the Flow was sent is ignored; a tampered price in the submission is ignored (DB price used).
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4: Run** → PASS.
 - [ ] **Step 5: Commit** `feat(orders): validate flow submission and create pending order`
 
@@ -378,10 +404,10 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 - Produces:
   ```ts
   interface PaymentProvider {
-    createPaymentLink(t: Tenant, i: { linkId: string; amountPaise: number; purpose: string;
+    createPaymentLink(t: TenantConfig, i: { linkId: string; amountPaise: number; purpose: string;
       customerPhone: string | null; customerName: string | null; expiresAt: Date; notifyUrl: string }): Promise<{ linkId: string; url: string }>;
-    getPaymentLink(t: Tenant, linkId: string): Promise<{ status: 'ACTIVE' | 'PAID' | 'EXPIRED' | 'CANCELLED' | 'PARTIALLY_PAID'; amountPaidPaise: number }>;
-    refundPaymentLink(t: Tenant, linkId: string, amountPaise: number, refundId: string): Promise<void>;
+    getPaymentLink(t: TenantConfig, linkId: string): Promise<{ status: 'ACTIVE' | 'PAID' | 'EXPIRED' | 'CANCELLED' | 'PARTIALLY_PAID'; amountPaidPaise: number }>;
+    refundPaymentLink(t: TenantConfig, linkId: string, amountPaise: number, refundId: string): Promise<void>;
     // subscription methods are added in Task 13
   }
   type CashfreeEvent =
@@ -392,7 +418,7 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
   ```
   - `verifyCashfreeSignature(rawBody: string, timestamp: string | undefined, signature: string | undefined, secret: string): boolean` — `base64(HMAC_SHA256(timestamp + rawBody, secret))`, constant-time compare.
   - `parseCashfreeEvent(body: unknown): CashfreeEvent`.
-  - `CashfreeProvider(env, fetchImpl = fetch)` reads `process.env[tenant.cashfree_app_id_env]` / `[cashfree_secret_env]`; sends `x-client-id`, `x-client-secret`, `x-api-version: 2025-01-01`. Amounts converted paise ↔ rupees only inside the adapter. `customerPhone` null → omit (customers with BSUID only).
+  - `CashfreeProvider(env, fetchImpl = fetch)` reads `process.env[tenant.cashfree.appIdEnv]` / `[tenant.cashfree.secretEnv]`; sends `x-client-id`, `x-client-secret`, `x-api-version: 2025-01-01`. Amounts converted paise ↔ rupees only inside the adapter. `customerPhone` null → omit (customers with BSUID only).
   - Payment repo: `insertPayment`, `findPaymentByProviderRef`, `markPayment(db, id, status, raw)`.
   - `FakePaymentProvider` lets tests set link status/amount and records calls.
 
@@ -406,17 +432,18 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 ### Task 11: Checkout end to end — Pay button, Cashfree webhook, confirmation
 
 **Files:**
-- Create: `src/ingress/cashfree-routes.ts`
-- Modify: `src/orders/order-service.ts` (`startPayment`, `confirmPaidOrder`), `src/bot/order-flow-handler.ts` (replace stub), `src/app.ts`
+- Create: `src/ingress/cashfree-routes.ts`, `src/bot/location.ts`
+- Modify: `src/channels/whatsapp/builders.ts` (`locationRequestMsg(body)`), `src/bot/router.ts` (route `location`), `src/orders/order-service.ts` (`startPayment`, `confirmPaidOrder`), `src/bot/order-flow-handler.ts` (replace stub), `src/app.ts`
 - Test: `tests/orders/checkout.test.ts`, `tests/ingress/cashfree-routes.test.ts`
 
 **Interfaces:**
 - Produces:
-  - `startPayment(deps, tenant, customer, order: OrderWithItems): Promise<void>` — `linkId = order.id` (uuid, unique), `expiresAt = now + tenant.payment_link_expiry_minutes`, `notifyUrl = ${PUBLIC_BASE_URL}/webhooks/cashfree` (add `PUBLIC_BASE_URL` to `Env`); insert `payments` row (`kind: link`, `created`); send `ctaUrlMsg({ body: copy.orderSummary(...), buttonText: 'Pay ₹<total>', url })`.
-  - `confirmPaidOrder(deps, tenant, linkId): Promise<'confirmed' | 'already' | 'not_paid' | 'amount_mismatch'>` — loads payment by `provider_ref`; if order not `payment_pending` → `already`; calls `getPaymentLink`; requires `status === 'PAID'` and `amountPaidPaise === order.total_paise`; then in one transaction payment → `paid`, order → `confirmed`, `paid_at = now`; then sends `copy.orderConfirmed`. Mismatch → log error, payment stays, returns `amount_mismatch`.
+  - `startPayment(deps, tenant, customer, order: OrderWithItems): Promise<void>` — `linkId = order.id` (uuid, unique), `expiresAt = now + tenant.paymentLinkExpiryMinutes`, `notifyUrl = ${PUBLIC_BASE_URL}/webhooks/cashfree` (add `PUBLIC_BASE_URL` to `Env`); insert `payments` row (`kind: link`, `created`); send `ctaUrlMsg({ body: copy.orderSummary(...), buttonText: 'Pay ₹<total>', url })`.
+  - `confirmPaidOrder(deps, tenant, linkId): Promise<'confirmed' | 'already' | 'not_paid' | 'amount_mismatch'>` — loads payment by `provider_ref`; if order not `payment_pending` → `already`; calls `getPaymentLink`; requires `status === 'PAID'` and `amountPaidPaise === order.total_paise`; then in one transaction payment → `paid`, order → `confirmed`, `paid_at = now`; then sends `copy.orderConfirmed`, and if `customer.default_location` is null also sends a WhatsApp `location_request_message` with `copy.askLocation()` ("Help our delivery partner find you 📍 — optional"). Mismatch → log error, payment stays, returns `amount_mismatch`.
+  - `onLocationShared(deps, tenant, customer, msg: {lat; lng})` (in `src/bot/location.ts`): save `customers.default_location`; set `orders.location` on that customer's orders in `confirmed | assigned | out_for_delivery` and `subscriptions.location` on `active | pending_authorization` subscriptions; reply `copy.locationSaved()`. No serviceability check (pincode decides that).
   - Route `POST /webhooks/cashfree`: verify signature with the tenant's secret (tenant resolved from the payment row of `linkId`/subscription id; unknown ref → 200 + warn); bad signature → 401; dispatch `link_*` → `confirmPaidOrder`; subscription events → Task 14 handlers (stub → 200). Always 200 after handling, including handler errors (logged), so Cashfree does not hammer retries for bugs; the daily job reconciles.
 
-- [ ] **Step 1: Write failing tests** — flow submit → outbound CTA with `Pay ₹600` and the fake link URL, `payments` row `created`; webhook with valid signature + fake link PAID → order `confirmed`, one confirmation message containing `NF-1001` and `Wed, 18 Nov`; same webhook again → `already`, still exactly one confirmation; fake link `ACTIVE` → `not_paid`, order stays pending; amount 59900 → `amount_mismatch`, order stays pending; bad signature → 401, nothing changes.
+- [ ] **Step 1: Write failing tests** — flow submit → outbound CTA with `Pay ₹600` and the fake link URL, `payments` row `created`; webhook with valid signature + fake link PAID → order `confirmed`, one confirmation message containing the order's `order_code` and `Wed, 18 Nov`, followed by one location request (customer has no location); a customer who already has a location gets no location request; sharing a location updates the customer and their confirmed order and replies once; same webhook again → `already`, still exactly one confirmation; fake link `ACTIVE` → `not_paid`, order stays pending; amount 59900 → `amount_mismatch`, order stays pending; bad signature → 401, nothing changes.
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4: Run** → PASS.
 - [ ] **Step 5: Commit** `feat(checkout): payment link button, cashfree webhook and order confirmation`
 
@@ -450,17 +477,18 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 - Produces:
   - `PaymentProvider` additions:
     ```ts
-    createSubscription(t: Tenant, i: { subscriptionId: string; maxAmountPaise: number; customer: { name: string; email: string; phone: string | null };
-      returnUrl: string; notifyUrl: string }): Promise<{ providerSubscriptionId: string; authLink: string }>;
-    getSubscription(t: Tenant, providerSubscriptionId: string): Promise<{ status: 'ACTIVE' | 'INITIALIZED' | 'BANK_APPROVAL_PENDING' | 'CANCELLED' | 'FAILED' | string }>;
-    raiseCharge(t: Tenant, i: { providerSubscriptionId: string; paymentId: string; amountPaise: number; scheduleDate: string }): Promise<void>;
-    cancelSubscription(t: Tenant, providerSubscriptionId: string): Promise<void>;
+    // subscriptionId = our subscriptions.id, sent to Cashfree as the merchant subscription_id; all later calls use it.
+    createSubscription(t: TenantConfig, i: { subscriptionId: string; maxAmountPaise: number; customer: { name: string; email: string; phone: string | null };
+      returnUrl: string; notifyUrl: string }): Promise<{ cfSubscriptionId: string; authLink: string }>;
+    getSubscription(t: TenantConfig, subscriptionId: string): Promise<{ status: 'ACTIVE' | 'INITIALIZED' | 'BANK_APPROVAL_PENDING' | 'CANCELLED' | 'FAILED' | string }>;
+    raiseCharge(t: TenantConfig, i: { subscriptionId: string; paymentId: string; amountPaise: number; scheduleDate: string }): Promise<void>;
+    cancelSubscription(t: TenantConfig, subscriptionId: string): Promise<void>;
     ```
     Cashfree plan type `ON_DEMAND`, payment method UPI. `maxAmountPaise = 2 × per_delivery_total` (headroom for price changes without a new mandate).
-  - `buildSubscribeFlowJson(products)`: `PRODUCTS` screen identical to the order flow (labels say "per week"), then `DETAILS` terminal screen = ADDRESS fields + `TextInput email` (`input-type: email`, required). Complete payload adds `email`.
+  - `buildSubscribeFlowJson()`: `PRODUCTS` screen identical to the order flow (same 8 fixed slots) (labels say "per week"), then `DETAILS` terminal screen = ADDRESS fields + `TextInput email` (`input-type: email`, required). Complete payload adds `email`.
   - `sendSubscribeFlow(deps, tenant, customer)` — token `subscribe:<customerId>:<id>`.
-  - `onSubscribeFlowSubmit(deps, tenant, customer, msg)`: reuse `parseOrderSubmission` + pincode checks; email must match `^[^@\s]+@[^@\s]+\.[^@\s]+$` else `copy.invalidEmail()`; save email + default address; insert `subscriptions` (`pending_authorization`, `delivery_weekday` from pincode, `per_delivery_total_paise`) + `subscription_items`; `createSubscription`; store `provider_subscription_id`, `auth_link`; send `ctaUrlMsg({ body: copy.subscriptionSummary(...), buttonText: 'Set up AutoPay', url: authLink })`.
-  - `onSubscriptionStatus(deps, tenant, providerSubscriptionId)`: `getSubscription` (never trust the webhook alone); `ACTIVE` and local `pending_authorization` → set `active`, `next_delivery_date = nextDeliveryDate(now, weekday)`, send `copy.subscriptionActive`; `CANCELLED`/`FAILED` while pending → `authorization_failed`; idempotent.
+  - `onSubscribeFlowSubmit(deps, tenant, customer, msg)`: reuse `parseOrderSubmission` + pincode checks; email must match `^[^@\s]+@[^@\s]+\.[^@\s]+$` else `copy.invalidEmail()`; save email + default address; insert `subscriptions` (`pending_authorization`, `frequency: 'weekly'`, `delivery_weekday` from pincode, `per_delivery_total_paise`, `location` = customer default) + `subscription_items`; `createSubscription({ subscriptionId: sub.id, … })`; store `cf_subscription_id`, `auth_link`; send `ctaUrlMsg({ body: copy.subscriptionSummary(...), buttonText: 'Set up AutoPay', url: authLink })`.
+  - `onSubscriptionStatus(deps, tenant, subscriptionId)`: `getSubscription` (never trust the webhook alone); `ACTIVE` and local `pending_authorization` → set `active`, `next_delivery_date = nextDeliveryDate(now, weekday)`, send `copy.subscriptionActive`; `CANCELLED`/`FAILED` while pending → `authorization_failed`; idempotent.
 
 - [ ] **Step 1: Failing tests** — subscribe flow JSON has `email` field and complete payload includes it; invalid email → invalidEmail message, no subscription row; valid submit → subscription `pending_authorization`, items saved, CTA "Set up AutoPay" with fake auth link, fake provider received `maxAmountPaise = 2 × total`; status webhook (fake ACTIVE) → `active`, `next_delivery_date` = next weekday, one activation message; repeated webhook → no second message.
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement** (verify Cashfree subscription field names in docs; republish flows via script). **Step 4: Run** → PASS.
@@ -478,13 +506,13 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 
 **Interfaces:**
 - Produces:
-  - `raiseDueCharges(deps, tenant): Promise<number>` — for `active` subscriptions with `next_delivery_date <= today + tenant.subscription_charge_lead_days`: create order via `createPendingOrder` (`source: subscription`, `deliveryDate: next_delivery_date`, items from `subscription_items` at **current** prices), insert `payments` (`kind: subscription_charge`, `provider_ref = order.id`), `raiseCharge({ paymentId: order.id, amountPaise: order.total_paise, scheduleDate: next_delivery_date − 1 day })`, then advance `next_delivery_date += 7`. Idempotent per (subscription, delivery date): skip if an order already exists for that pair.
-  - `onChargeResult(deps, tenant, paymentId, success)`: success → payment `paid`, order `confirmed` (no message — weekly spam is unwanted); failure → payment `failed`, order `payment_failed`, send template `subscription_charge_failed` with params `[deliveryDate]`. Idempotent.
-  - `expireStalePendingOrders(deps, tenant): Promise<number>` — one-time `payment_pending` orders older than `payment_link_expiry_minutes` whose link `getPaymentLink` is not PAID → order `expired`, payment `expired`; if PAID (missed webhook) → `confirmPaidOrder`.
-  - `runDailyJob(deps): Promise<{ tenants: number; charges: number; expired: number; purged: number; dbBytes: number }>` — per tenant: `raiseDueCharges`, `expireStalePendingOrders`, `purgeMessagesOlderThan(retention)`; then `select pg_database_size(current_database())`, log **warn** when > 400 MB.
+  - `raiseDueCharges(deps, tenant): Promise<number>` — for `active` subscriptions with `next_delivery_date <= today + tenant.subscriptionChargeLeadDays`: build `charge_items` from `subscription_items` at **current** prices; amount = Σ + `settings.deliveryFeePaise`; insert `payments` (`kind: subscription_charge`, `order_id: null`, `subscription_id`, `for_delivery_date = next_delivery_date`, `charge_items`, `provider_ref = payment.id`, `status: created`) — on unique violation of (`subscription_id`,`for_delivery_date`) skip (already raised); `raiseCharge({ subscriptionId, paymentId: payment.id, amountPaise, scheduleDate: addDays(next_delivery_date, -1) })`; then `next_delivery_date = addDays(next_delivery_date, frequencyStepDays(sub.frequency))`. The date advances **when the charge is raised**, not on success, so a slow/failed debit can never cause a second charge for the same delivery and a failed week is simply skipped.
+  - `onChargeResult(deps, tenant, paymentId, success)`: load payment by `provider_ref`; if already `paid`/`failed` → no-op. Success → `createOrder({ status: 'confirmed', source: 'subscription', subscriptionId, deliveryDate: for_delivery_date, lines/unitPrices from charge_items, address/location from the subscription })`, set `payments.order_id`, payment `paid`, order `paid_at` (no message to customer — weekly spam is unwanted). Failure → payment `failed`, no order, send template `subscription_charge_failed` with params `[formatDeliveryDate(for_delivery_date)]`.
+  - `expireStalePendingOrders(deps, tenant): Promise<number>` — one-time `payment_pending` orders older than `tenant.paymentLinkExpiryMinutes` whose link `getPaymentLink` is not PAID → order `expired`, payment `expired`; if PAID (missed webhook) → `confirmPaidOrder`.
+  - `runDailyJob(deps): Promise<{ tenants: number; charges: number; expired: number; purged: number; dbBytes: number }>` — for each of `allTenants()`: `raiseDueCharges`, `expireStalePendingOrders`, `purgeMessagesOlderThan(tenant.messageRetentionDays)`; then `select pg_database_size(current_database())`, log **warn** when > 400 MB.
   - Route `POST /jobs/daily` requires header `x-jobs-secret === env.JOBS_SECRET` (else 401); returns the summary JSON.
 
-- [ ] **Step 1: Failing tests** (fixed clock Thu 2026-11-12 IST, lead 2 days): active subscription with next delivery Wed 18 Nov → not charged on 12 Nov; clock 16 Nov → one order `NF-…` (`source: subscription`, delivery `2026-11-18`), `raiseCharge` scheduleDate `2026-11-17`, next date becomes `2026-11-25`; running twice on 16 Nov → still one order. Charge success → order `confirmed`, no outbound message; failure → `payment_failed` + template `subscription_charge_failed` sent. Pending one-time order 31 min old with link ACTIVE → `expired`; with link PAID → `confirmed`. Messages older than retention purged. `/jobs/daily` without secret → 401.
+- [ ] **Step 1: Failing tests** (fixed clock Thu 2026-11-12 IST, lead 2 days): active weekly subscription with next delivery Wed 18 Nov → not charged on 12 Nov; clock 16 Nov → one `payments` row (`created`, `for_delivery_date 2026-11-18`, `order_id null`), **no order yet**, `raiseCharge` scheduleDate `2026-11-17`, next date becomes `2026-11-25`; running twice on 16 Nov → still one payment; a `monthly` subscription advances to `2026-12-16`. Charge success → exactly one order (`confirmed`, `source: subscription`, delivery `2026-11-18`, items = `charge_items` even if the product price changed after raising), payment `paid` with `order_id` set, no outbound message; same success webhook again → still one order; failure → payment `failed`, no order, template `subscription_charge_failed` sent, `next_delivery_date` stays `2026-11-25`. Pending one-time order 31 min old with link ACTIVE → `expired`; with link PAID → `confirmed`. Messages older than retention purged. `/jobs/daily` without secret → 401.
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4: Run** → PASS.
 - [ ] **Step 5: Commit** `feat(jobs): daily job for subscription charges, expiry, retention and db size`
 
@@ -500,10 +528,10 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 **Interfaces:**
 - Produces:
   - Allowed transitions: `confirmed → assigned | cancelled`, `assigned → out_for_delivery | assigned (reassign) | cancelled`, `out_for_delivery → delivered | cancelled`. Anything else throws `InvalidTransitionError`.
-  - `updateStatus(deps, tenant, orderId, to: 'assigned' | 'out_for_delivery' | 'delivered' | 'cancelled', opts?: { partnerId?: string }): Promise<Order>` — `assigned` requires an active `partnerId`; `delivered` sets `delivered_at` and sends template `order_delivered` with params `[orderNumber]` to the customer; other transitions send nothing.
+  - `updateStatus(deps, tenant, orderId, to: 'assigned' | 'out_for_delivery' | 'delivered' | 'cancelled', opts?: { partnerId?: string }): Promise<Order>` — `assigned` requires an active `partnerId`; `delivered` sets `delivered_at` and sends template `order_delivered` with params `[orderCode]` to the customer; other transitions send nothing.
   - `refundOrder(deps, tenant, orderId): Promise<void>` — only for one-time orders with a `paid` link payment; calls `refundPaymentLink` (refund id = `refund-<orderId>`), payment → `refunded`, order → `cancelled` if not delivered. Subscription-charge refunds are out of scope (throw `NotSupportedError`).
   - `cancelSubscription(deps, tenant, subscriptionId): Promise<void>` (in `subscription-service.ts`) — provider `cancelSubscription`, status → `cancelled`, `next_delivery_date = null`; already-raised orders are untouched.
-  - CLI: `pnpm tsx scripts/orders.ts <tenantSlug> <orderNumber> assign <partnerPhone> | out-for-delivery | delivered | cancel | refund`, and `pnpm tsx scripts/orders.ts <tenantSlug> sub <subscriptionId> cancel`. Phase 2 dashboard calls these same service functions.
+  - CLI: `pnpm tsx scripts/orders.ts <tenantId> <orderCode> assign <partnerPhone> | out-for-delivery | delivered | cancel | refund`, and `pnpm tsx scripts/orders.ts <tenantId> sub <subscriptionId> cancel`. Phase 2 dashboard calls these same service functions.
 
 - [ ] **Step 1: Failing tests** — confirmed → assigned (with partner) → out_for_delivery → delivered sends exactly one `order_delivered` template; `payment_pending → delivered` throws; assign without partner throws; refund of paid one-time order calls provider once and marks payment `refunded`; refund of unpaid order throws.
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4: Run** → PASS.
@@ -523,8 +551,8 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 - [ ] **Step 1: Dockerfile** — multi-stage `node:22-slim`; build with `pnpm build`; runtime runs `node dist/index.js`; `PORT` from env. Verify `docker build . && docker run -p 8080:8080 --env-file .env.local <img>` → `curl :8080/health` → `{"ok":true}`.
 - [ ] **Step 2: Supabase** — create project in Mumbai region; copy the transaction-pooler URL into `DATABASE_URL`; run `pnpm db:migrate` and `pnpm tsx scripts/seed.ts`. Verify tables exist in Supabase table editor.
 - [ ] **Step 3: Cloud Run** — `gcloud run deploy c2v-bot --source . --region asia-south1 --allow-unauthenticated --min-instances 0 --max-instances 2`, secrets via Secret Manager env bindings. Verify `/health` on the service URL.
-- [ ] **Step 4: Meta wiring** (use the WhatsApp Business MCP tools on business `organic_nutri_farm`): confirm the phone number is linked; set webhook callback `https://<run-url>/webhooks/whatsapp` + verify token on app "C2V"; subscribe the WABA to the app (`messages` field); create utility templates `order_delivered` (body: "Your order {{1}} has been delivered. Thank you for choosing NutriFarm! 🥚") and `subscription_charge_failed` (body: "We couldn't collect payment for your egg delivery on {{1}}. This week's delivery is skipped. Reply *Hi* if you need help.") and wait for approval; run `scripts/publish-flows.ts nutrifarm`.
+- [ ] **Step 4: Meta wiring** (use the WhatsApp Business MCP tools on business `organic_nutri_farm`): confirm the phone number is linked; set webhook callback `https://<run-url>/webhooks/whatsapp` + verify token on app "C2V"; subscribe the WABA to the app (`messages` field); create utility templates `order_delivered` (body: "Your order {{1}} has been delivered. Thank you for choosing NutriFarm! 🥚") and `subscription_charge_failed` (body: "We couldn't collect payment for your egg delivery on {{1}}. This week's delivery is skipped. Reply *Hi* if you need help.") and wait for approval; Flows were already published in Tasks 8 and 13 (ids in `nutrifarm/config.ts`).
 - [ ] **Step 5: Cashfree wiring** — sandbox first: set webhook URL `https://<run-url>/webhooks/cashfree` for payment links and subscriptions; later switch `CASHFREE_ENV=production` with production keys (UPI AutoPay must be enabled by Cashfree's team).
 - [ ] **Step 6: Cloud Scheduler** — daily job at 06:00 IST: `POST https://<run-url>/jobs/daily` with header `x-jobs-secret`.
-- [ ] **Step 7: Smoke test from a real phone** (sandbox payments): Hi → menu; Order Eggs → Flow → submit → Pay button → pay → confirmation; My Orders shows it; `scripts/orders.ts nutrifarm NF-1001 assign …` → `out-for-delivery` → `delivered` → template received; Subscribe → AutoPay link → approve → activation message; trigger `/jobs/daily` manually → logs summary. Record results in `docs/runbook.md`.
+- [ ] **Step 7: Smoke test from a real phone** (sandbox payments): Hi → menu; Order Eggs → Flow → submit → Pay button → pay → confirmation; My Orders shows it; `scripts/orders.ts nutrifarm <orderCode> assign …` → `out-for-delivery` → `delivered` → template received; Subscribe → AutoPay link → approve → activation message; trigger `/jobs/daily` manually → logs summary. Record results in `docs/runbook.md`.
 - [ ] **Step 8: Commit** `chore(deploy): dockerfile, runbook and production wiring`
