@@ -18,11 +18,13 @@ Improvements list (§9).
 | Database | PostgreSQL on **Supabase free tier**, used as plain Postgres only (no Supabase Auth/SDK). Drizzle ORM. Connect via the Supabase transaction pooler. |
 | Redis / queue | **None** in Phase 1. Webhooks are processed inside the request; duplicates are dropped via a unique WhatsApp message id. |
 | Hosting | GCP Cloud Run (asia-south1), scale-to-zero; Cloud Scheduler hits a daily job endpoint. |
-| Tenancy | One deployment serves all tenants. Tenant resolved from the webhook's `phone_number_id`. Every business table carries `tenant_id`. |
+| Tenancy | One deployment serves all tenants. Constant tenant config (phone number id, WABA id, flow ids, env-var names, order code prefix, expiry/lead/retention values, copy) lives **in code** and is registered by `phone_number_id`. The `tenants` table holds only vendor-editable values (support phone, delivery fee, min order). Every business table carries `tenant_id` (text, e.g. `nutrifarm`). |
+| Order identifiers | `orders.id` uuid internally; customer-facing `order_code` like `NF-7K3QX9` (random, unique per tenant). No counters. |
+| Location | Optional: after an order is confirmed, customers without a saved pin get a "Send location" request; lat/lng saved on the customer and copied to open orders/subscriptions for the delivery partner's map link. |
 | Customer identity | Keyed on business-scoped user id (`user_id`) when present, else `wa_id`. Both stored. |
 | Ordering UI | WhatsApp **Flows without a data endpoint** (no catalog). Order summary + Pay button arrive as a chat message after Flow submit. |
 | Payments | Cashfree. One-time: **Payment Link** API, sent as an interactive CTA-URL button, expiry **30 min**. Status confirmed via Cashfree webhook **and** a server-side GET before marking paid. |
-| Subscriptions | Cashfree **Subscriptions (UPI AutoPay mandate)**, `ON_DEMAND` plan, **charged per delivery**. Authorisation link sent as a CTA-URL button. Customer email is mandatory (Cashfree requirement). Frequency: **weekly** on the pincode's delivery day. |
+| Subscriptions | Cashfree **Subscriptions (UPI AutoPay mandate)**, `ON_DEMAND` plan, **charged per delivery**. Authorisation link sent as a CTA-URL button. Customer email is mandatory (Cashfree requirement). `frequency` column supports weekly/biweekly/monthly (7/14/28 days, always on the pincode weekday); Phase 1 offers **weekly** only. The daily job records the charge and advances `next_delivery_date` when it **raises** the charge; the order is created only when the charge **succeeds**; a failed week is skipped. |
 | Delivery date | Each serviceable pincode has one delivery weekday. Expected date = the **next** occurrence of that weekday, strictly after today (ordering on the delivery weekday ⇒ next week). Timezone Asia/Kolkata. |
 | Fees | Delivery fee 0, no minimum order — both tenant config values. |
 | Order statuses | `payment_pending → confirmed → assigned → out_for_delivery → delivered`, plus `cancelled`, `payment_failed`, `expired`. Only `confirmed` onward are "real" orders for the dashboard. |
@@ -70,9 +72,13 @@ flow token says which Flow it was.
 
 ## 6. Data model (Postgres)
 
-`tenants`, `customers`, `products`, `pincodes`, `orders`, `order_items`, `payments`,
-`subscriptions`, `subscription_items`, `delivery_partners`, `messages`. Money is integer paise.
-Address is snapshotted onto each order and subscription.
+`tenants` (vendor-editable settings only), `customers` (+ `default_location`), `products`,
+`pincodes`, `orders` (`order_code`, + `location`), `order_items`, `payments` (`order_id`
+nullable; `subscription_id` + `for_delivery_date` unique; `charge_items` snapshot),
+`subscriptions` (`frequency`, `cf_subscription_id`), `subscription_items`,
+`delivery_partners`, `messages`. Money is integer paise. Address/location are snapshotted onto
+each order and subscription. The order Flow uses 8 fixed product slots shown/hidden via data, so
+the published Flow never changes when products change.
 
 ## 7. Capacity (Supabase free: 500 MB DB, 5 GB egress, shared CPU/500 MB RAM)
 
