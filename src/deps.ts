@@ -1,4 +1,6 @@
 import type { Logger } from 'pino';
+import type { WhatsAppSender } from './channels/whatsapp/sender.js';
+import type { Db } from './db/client.js';
 import type { Env } from './config/env.js';
 
 export interface AppDeps {
@@ -6,7 +8,7 @@ export interface AppDeps {
   now: () => Date;
   log: Logger;
   // Placeholders; replaced by real types in later tasks.
-  db: unknown;
-  whatsapp: unknown;
+  db: Db;
+  whatsapp: WhatsAppSender;
   payments: unknown;
 }

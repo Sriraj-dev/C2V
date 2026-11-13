@@ -1,4 +1,5 @@
 import type { TenantConfig } from '../types.js';
+import { nutrifarmCopy } from './copy.js';
 
 export const nutrifarm: TenantConfig = {
   id: 'nutrifarm',
@@ -13,5 +14,5 @@ export const nutrifarm: TenantConfig = {
   paymentLinkExpiryMinutes: 30,
   subscriptionChargeLeadDays: 2,
   messageRetentionDays: 3,
-  copy: {},
+  copy: nutrifarmCopy,
 };

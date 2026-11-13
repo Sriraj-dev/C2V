@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 import type { Db } from '../../src/db/client.js';
 import * as schema from '../../src/db/schema.js';
 import type { TenantConfig } from '../../src/tenants/types.js';
+import { nutrifarmCopy } from '../../src/tenants/nutrifarm/copy.js';
 
 let shared: Promise<Db> | undefined;
 
@@ -92,7 +93,7 @@ export function testTenant(overrides: Partial<TenantConfig> = {}): TenantConfig 
     paymentLinkExpiryMinutes: 30,
     subscriptionChargeLeadDays: 2,
     messageRetentionDays: 3,
-    copy: {},
+    copy: nutrifarmCopy,
     ...overrides,
   };
 }
