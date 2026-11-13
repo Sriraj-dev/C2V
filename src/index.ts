@@ -2,9 +2,12 @@ import { serve } from '@hono/node-server';
 import { pino } from 'pino';
 import { buildApp } from './app.js';
 import { loadEnv } from './config/env.js';
+import { registerTenants } from './tenants/registry.js';
+import { nutrifarm } from './tenants/nutrifarm/config.js';
 
 const env = loadEnv(process.env);
 const log = pino({ level: env.LOG_LEVEL });
+registerTenants([nutrifarm]);
 const app = buildApp({
   env,
   now: () => new Date(),

@@ -256,7 +256,7 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
     Every later signature that says `tenant` means `TenantConfig`.
   - `registry.ts`: `registerTenants(list: TenantConfig[])` (throws on duplicate `id` or `waPhoneNumberId`), `tenantByPhoneNumberId(id): TenantConfig | null`, `tenantById(id): TenantConfig | null`, `allTenants(): TenantConfig[]`. `index.ts` calls `registerTenants([nutrifarm])` at boot.
   - `nutrifarm/config.ts`: real `waPhoneNumberId`/`wabaId` (from the WhatsApp Business MCP, business `organic_nutri_farm`), `waTokenEnv: 'NUTRIFARM_WA_TOKEN'`, `cashfree: { appIdEnv: 'NUTRIFARM_CF_APP_ID', secretEnv: 'NUTRIFARM_CF_SECRET' }`, `orderCodePrefix: 'NF'`, `30` / `2` / `3`; flow ids are empty strings until Task 8 publishes them.
-  - `settings-repo.ts`: `type TenantSettings = { supportPhone: string; deliveryFeePaise: number; minOrderPaise: number }`; `getTenantSettings(db, tenantId): Promise<TenantSettings>` (throws if the row is missing).
+  - `settings-repo.ts`: `type TenantSettings = { supportPhone: string | null; deliveryFeePaise: number; minOrderPaise: number }`; `getTenantSettings(db, tenantId): Promise<TenantSettings>` (throws if the row is missing).
   - `buildApp(deps, opts?: { onInbound?: (tenant: TenantConfig, msg: InboundMessage) => Promise<void> })`. Tenant is resolved with `tenantByPhoneNumberId` — no DB read. Route `POST /webhooks/whatsapp` calls `onInbound(tenant, msg)` for each message (default wired to `handleInbound` in Task 7; tests inject a spy). Unknown tenant → log warn, still 200.
   - Route `GET /webhooks/whatsapp` echoes `hub.challenge` when `hub.mode=subscribe` and token matches, else 403.
 
@@ -339,7 +339,7 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
     - `location` → `onLocationShared` (Task 11).
     - anything else → `sendMenu`.
     - Any thrown error → log, `sendAndLog(copy.genericError())` (best effort), never rethrow (webhook must 200).
-  - `sendMenu(deps, tenant, customer)`: reply buttons Order Eggs / Subscribe / My Orders with the welcome text; `sendHelp`: CTA-URL button `tel:+<settings.supportPhone>` (read via `getTenantSettings`, so the vendor can change it from the dashboard).
+  - `sendMenu(deps, tenant, customer)`: reply buttons Order Eggs / Subscribe / My Orders with the welcome text; `sendHelp`: CTA-URL button `tel:+<settings.supportPhone>` (read via `getTenantSettings`, so the vendor can change it from the dashboard); if supportPhone is null, reply with plain text help and log a warning.
   - Until Tasks 8/12/13 exist, those dispatch targets are stubs that call `sendMenu`; each later task replaces its stub.
 
 - [ ] **Step 1: Write failing tests** (PGlite + FakeWhatsAppSender): text "hi" → one outbound reply-buttons message with ids above, inbound + outbound rows in `messages`; same inbound delivered twice → only one reply; `menu:help` → CTA with `tel:` URL; image message → menu; handler throwing → generic error sent and `handleInbound` resolves.

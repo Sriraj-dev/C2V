@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import type { Db } from '../../src/db/client.js';
 import * as schema from '../../src/db/schema.js';
+import type { TenantConfig } from '../../src/tenants/types.js';
 
 export async function createTestDb(): Promise<Db> {
   const db = drizzle(new PGlite(), { schema });
@@ -57,4 +58,22 @@ export async function seedCustomer(
     .values({ tenantId, waKey: `91900000${String(n).padStart(4, '0')}`, waId: null, ...overrides })
     .returning();
   return row!;
+}
+
+export function testTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {
+  return {
+    id: 'test',
+    name: 'Test Tenant',
+    waPhoneNumberId: '1414838555047142',
+    wabaId: 'waba-test',
+    waTokenEnv: 'TEST_WA_TOKEN',
+    cashfree: { appIdEnv: 'TEST_CF_APP_ID', secretEnv: 'TEST_CF_SECRET' },
+    flows: { orderFlowId: 'flow-order', subscribeFlowId: 'flow-sub' },
+    orderCodePrefix: 'TS',
+    paymentLinkExpiryMinutes: 30,
+    subscriptionChargeLeadDays: 2,
+    messageRetentionDays: 3,
+    copy: {},
+    ...overrides,
+  };
 }
