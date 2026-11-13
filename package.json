@@ -15,7 +15,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
     "db:seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
-    "flows:publish": "tsx --env-file-if-exists=.env scripts/publish-flows.ts"
+    "flows:publish": "tsx --env-file-if-exists=.env scripts/publish-flows.ts",
+    "samples:send": "tsx --env-file-if-exists=.env scripts/send-samples.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.8",

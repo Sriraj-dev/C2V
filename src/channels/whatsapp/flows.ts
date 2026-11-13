@@ -219,11 +219,23 @@ async function graph(
 }
 
 /** Creates and publishes a Flow on the tenant's WABA; returns the flow id. Throws with validation errors if any. */
-export async function publishFlow(
+export function publishFlow(
   env: Pick<Env, 'GRAPH_API_VERSION'>,
   tenant: TenantConfig,
   name: string,
   flowJson: object,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  return createFlow(env, tenant, name, flowJson, { publish: true }, fetchImpl);
+}
+
+/** Creates a Flow on the tenant's WABA (published, or left as DRAFT for testing); returns the flow id. */
+export async function createFlow(
+  env: Pick<Env, 'GRAPH_API_VERSION'>,
+  tenant: TenantConfig,
+  name: string,
+  flowJson: object,
+  opts: { publish: boolean },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   const url = `https://graph.facebook.com/${env.GRAPH_API_VERSION}/${tenant.wabaId}/flows`;
@@ -236,7 +248,7 @@ export async function publishFlow(
         name,
         categories: ['SHOPPING'],
         flow_json: JSON.stringify(flowJson),
-        publish: true,
+        publish: opts.publish,
       }),
     },
     fetchImpl,
