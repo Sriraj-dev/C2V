@@ -1,14 +1,33 @@
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
+import { sql } from 'drizzle-orm';
 import type { Db } from '../../src/db/client.js';
 import * as schema from '../../src/db/schema.js';
 import type { TenantConfig } from '../../src/tenants/types.js';
 
-export async function createTestDb(): Promise<Db> {
+let shared: Promise<Db> | undefined;
+
+async function bootTestDb(): Promise<Db> {
   const db = drizzle(new PGlite(), { schema });
   await migrate(db, { migrationsFolder: 'src/db/migrations' });
   return db as unknown as Db;
+}
+
+/**
+ * Returns an empty, fully migrated database. Booting PGlite + migrating is slow
+ * (~1s), so each test file boots it once and later calls just truncate every table.
+ * Vitest runs each test file in its own module scope, so files never share data.
+ */
+export async function createTestDb(): Promise<Db> {
+  if (!shared) shared = bootTestDb();
+  const db = await shared;
+  const rows = await db.execute<{ tablename: string }>(
+    sql`select tablename from pg_tables where schemaname = 'public'`,
+  );
+  const tables = (rows as unknown as { rows: { tablename: string }[] }).rows.map((r) => `"${r.tablename}"`);
+  if (tables.length) await db.execute(sql.raw(`truncate ${tables.join(', ')} restart identity cascade`));
+  return db;
 }
 
 export async function seedTenantRow(
