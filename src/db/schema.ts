@@ -218,6 +218,7 @@ export const orderItems = pgTable(
       .references(() => products.id),
     name: text('name').notNull(),
     unitPricePaise: integer('unit_price_paise').notNull(),
+    position: integer('position').notNull().default(0),
     quantity: integer('quantity').notNull(),
     lineTotalPaise: integer('line_total_paise').notNull(),
     createdAt: createdAt(),

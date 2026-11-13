@@ -16,6 +16,8 @@ await db
   .values({
     id: TENANT,
     supportPhone: '918310901383',
+    minOrderPaise: 9000, // ₹90 = one 6-pack
+    deliveryFeePaise: 0,
     welcomeImageUrl: 'https://images.pexels.com/photos/162712/egg-white-food-protein-162712.jpeg?auto=compress&w=1200',
   })
   .onConflictDoNothing();
