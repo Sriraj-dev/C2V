@@ -104,3 +104,4 @@ delivery/read ticks, multi-language, catalog, Flow data endpoint.
 9. Live dashboard push (SSE) instead of polling.
 10. Tech-provider registration + Embedded Signup for onboarding new tenants; encrypted per-tenant secrets in DB.
 11. COD.
+12. Close Supabase's public Data API: enable RLS (no policies) on every table, or turn the Data API off — **do before real customer data lands**. Our server connects as the owner and is unaffected.

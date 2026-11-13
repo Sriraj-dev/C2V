@@ -159,7 +159,9 @@ it('GET /health → 200 {ok:true}', async () => {
 - Test: `tests/db/schema.test.ts`
 
 **Interfaces:**
-- Produces: `Db` type (Drizzle instance, works for both postgres-js and PGlite); `createDb(url: string): Db` (postgres-js with `prepare: false` for the Supabase transaction pooler, `max: 5`); `createTestDb(): Promise<Db>` (PGlite + `migrate` from `src/db/migrations`); factories `seedTenantRow(db, id = 'test', overrides?)`, `seedProduct(db, tenantId, overrides?)`, `seedPincode(db, tenantId, pincode, weekday)`, `seedCustomer(db, tenantId, overrides?)`; `testTenant(overrides?): TenantConfig` (a config object with id `'test'`, fake env names, flow ids `'flow-order'`/`'flow-sub'`, prefix `'TS'`).
+- Produces: `Db` type (Drizzle instance, works for both postgres-js and PGlite); `createDb(url: string): Db` (postgres-js with `prepare: false` for the Supabase transaction pooler, `max: 5`); `createTestDb(): Promise<Db>` (PGlite + `migrate` from `src/db/migrations`); factories `seedTenantRow(db, id = 'test', overrides?)`, `seedProduct(db, tenantId, overrides?)`, `seedPincode(db, tenantId, pincode, weekday)`, `seedCustomer(db, tenantId, overrides?)`. (`testTenant()` moves to Task 4, which defines `TenantConfig`.)
+- Indexes (besides the unique constraints): `orders(tenant_id, status, delivery_date)`, `orders(subscription_id)`, `order_items(order_id)`, `payments(order_id)`, `subscriptions(tenant_id, status, next_delivery_date)`, `subscription_items(subscription_id)`, `messages(tenant_id, customer_id, created_at)`, `messages(created_at)` (retention delete). Foreign keys on every `*_id` reference.
+- Deferred (spec §9): enabling RLS on all tables to close Supabase's public Data API.
 - Tables (all except `tenants` have `id uuid pk default gen_random_uuid()`; all have `created_at timestamptz default now()`):
   - `tenants`: `id text pk` (matches `TenantConfig.id`), `support_phone text`, `delivery_fee_paise int default 0`, `min_order_paise int default 0`, `updated_at`. Nothing else — constants live in `TenantConfig`.
   - `customers`: `tenant_id`, `wa_key` (= `user_id ?? wa_id`), `wa_id` null, `bsuid` null, `profile_name` null, `email` null, `default_address jsonb` null, `default_location jsonb` null (`{lat: number, lng: number}`); unique(`tenant_id`,`wa_key`).
@@ -178,7 +180,7 @@ it('GET /health → 200 {ok:true}', async () => {
 - [ ] **Step 2: Run** `pnpm test tests/db` → FAIL.
 - [ ] **Step 3: Implement** `schema.ts`, `client.ts`, `drizzle.config.ts`; run `pnpm db:generate` to produce the first migration; implement `createTestDb` and factories.
 - [ ] **Step 4: Run** `pnpm test tests/db` → PASS.
-- [ ] **Step 5: Seed script** `scripts/seed.ts` (idempotent upserts) for NutriFarm: `tenants` row `id='nutrifarm'`, `support_phone` from `SEED_SUPPORT_PHONE`; products `EGG_W_6`, `EGG_W_12`, `EGG_W_30` (names "White Eggs – 6 pack" etc.; prices are read from `SEED_PRICE_EGG_W_6` etc. so real prices never live in git); pincode `560035` → weekday 3 (Wednesday). Run against a local Postgres or the Supabase dev project and verify rows exist.
+- [ ] **Step 5: Seed script** `scripts/seed.ts` (idempotent upserts, values are constants in the script — not env vars; the vendor edits them in the DB later) for NutriFarm: `tenants` row `id='nutrifarm'`, `support_phone` `918310901383`; products `EGG_W_6` "White Eggs – 6 pack" `9000`, `EGG_W_12` "White Eggs – 12 pack" `16800`, `EGG_W_30` "White Eggs – 30 pack" `39000` (sort_order 1/2/3); pincodes `560034`, `560102`, `560076` → weekday 3 (Wed), `560068`, `560037` → weekday 6 (Sat); delivery partner Ravi `919398651343`. Run `pnpm db:migrate` and `pnpm db:seed` against the Supabase dev project and verify rows exist.
 - [ ] **Step 6: Commit** `feat(db): schema, migrations, test db helper and seed`
 
 ---
@@ -221,7 +223,7 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 
 **Files:**
 - Create: `src/channels/whatsapp/signature.ts`, `src/channels/whatsapp/webhook-schema.ts`, `src/channels/whatsapp/parse.ts`, `src/tenants/types.ts`, `src/tenants/registry.ts`, `src/tenants/settings-repo.ts`, `src/tenants/nutrifarm/config.ts`, `src/ingress/whatsapp-routes.ts`
-- Modify: `src/app.ts` (mount routes)
+- Modify: `src/app.ts` (mount routes), `tests/helpers/test-db.ts` (add `testTenant(overrides?): TenantConfig` — id `'test'`, fake env names, flow ids `'flow-order'`/`'flow-sub'`, prefix `'TS'`)
 - Test: `tests/channels/whatsapp/parse.test.ts`, `tests/channels/whatsapp/signature.test.ts`, `tests/ingress/whatsapp-routes.test.ts`, `tests/fixtures/wa/*.json`
 
 **Interfaces:**
@@ -498,6 +500,8 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 ---
 
 ### Task 14: Daily job — subscription charges, charge results, expiry, retention, DB size
+
+> Note: `payments` is unique on (`subscription_id`, `for_delivery_date`) — a failed charge is never retried with a new row; that delivery is skipped (or the existing row is updated).
 
 **Files:**
 - Create: `src/jobs/daily.ts`, `src/ingress/jobs-routes.ts`
