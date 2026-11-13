@@ -9,6 +9,8 @@ export interface CopyLine {
 export interface TenantCopy {
   welcome(name: string | null): string;
   help(): string;
+  menuPrompt(): string;
+  menuRows(): { order: string; subscribe: string; myOrders: string; help: string };
   orderFlowIntro(): string;
   subscribeFlowIntro(): string;
   noItems(): string;

@@ -64,6 +64,7 @@ const tenantId = () => text('tenant_id').notNull().references(() => tenants.id);
 export const tenants = pgTable('tenants', {
   id: text('id').primaryKey(),
   supportPhone: text('support_phone'),
+  welcomeImageUrl: text('welcome_image_url'),
   deliveryFeePaise: integer('delivery_fee_paise').notNull().default(0),
   minOrderPaise: integer('min_order_paise').notNull().default(0),
   createdAt: createdAt(),

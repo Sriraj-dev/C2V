@@ -13,7 +13,11 @@ const db = drizzle(client, { schema: s });
 
 await db
   .insert(s.tenants)
-  .values({ id: TENANT, supportPhone: '918310901383' })
+  .values({
+    id: TENANT,
+    supportPhone: '918310901383',
+    welcomeImageUrl: 'https://images.pexels.com/photos/162712/egg-white-food-protein-162712.jpeg?auto=compress&w=1200',
+  })
   .onConflictDoNothing();
 
 const products = [

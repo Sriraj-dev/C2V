@@ -342,10 +342,12 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
     - `location` → `onLocationShared` (Task 11).
     - anything else → `sendMenu`.
     - Any thrown error → log, `sendAndLog(copy.genericError())` (best effort), never rethrow (webhook must 200).
-  - `sendMenu(deps, tenant, customer)`: reply buttons Order Eggs / Subscribe / My Orders with the welcome text; `sendHelp`: CTA-URL button `tel:+<settings.supportPhone>` (read via `getTenantSettings`, so the vendor can change it from the dashboard); if supportPhone is null, reply with plain text help and log a warning.
+  - `sendMenu(deps, tenant, customer)`: if `settings.welcomeImageUrl` is set, first `imageMsg({ link, caption: copy.welcome(name) })`; then a `listMsg` (button text "Menu") with 4 rows — `menu:order` Order Eggs, `menu:subscribe` Subscribe, `menu:my_orders` My Orders, `menu:help` Help (each with a short description from copy). WhatsApp allows max 3 reply buttons and list headers are text-only, hence image + list. Without an image the list body carries the welcome text.
+  - New vendor-editable setting: nullable `tenants.welcome_image_url` (new migration via `pnpm db:generate`), exposed as `TenantSettings.welcomeImageUrl: string | null`; seed sets it for new rows; dev DB row updated to a temporary public image.
+  - `sendHelp`: CTA-URL button `tel:+<settings.supportPhone>` (read via `getTenantSettings`, so the vendor can change it from the dashboard); if supportPhone is null, reply with plain text help and log a warning.
   - Until Tasks 8/12/13 exist, those dispatch targets are stubs that call `sendMenu`; each later task replaces its stub.
 
-- [ ] **Step 1: Write failing tests** (PGlite + FakeWhatsAppSender): text "hi" → one outbound reply-buttons message with ids above, inbound + outbound rows in `messages`; same inbound delivered twice → only one reply; `menu:help` → CTA with `tel:` URL; image message → menu; handler throwing → generic error sent and `handleInbound` resolves.
+- [ ] **Step 1: Write failing tests** (PGlite + FakeWhatsAppSender): text "hi" → image (when welcomeImageUrl set) then list menu with the 4 ids above (and list-only when unset), inbound + outbound rows in `messages`; same inbound delivered twice → only one reply; `menu:help` → CTA with `tel:` URL; image message → menu; handler throwing → generic error sent and `handleInbound` resolves.
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4: Run** → PASS.
 - [ ] **Step 5: Commit** `feat(bot): inbound router with menu, help and fallback`
 

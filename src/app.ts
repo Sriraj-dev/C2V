@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { handleInbound } from './bot/router.js';
 import type { InboundMessage } from './channels/whatsapp/parse.js';
 import type { AppDeps } from './deps.js';
 import { whatsappRoutes } from './ingress/whatsapp-routes.js';
@@ -12,15 +13,7 @@ export function buildApp(deps: AppDeps, opts: AppOpts = {}): Hono {
   const app = new Hono();
   // Must not touch the database.
   app.get('/health', (c) => c.json({ ok: true }));
-  // Until Task 7 wires the bot, inbound messages are only logged.
-  const onInbound =
-    opts.onInbound ??
-    (async (tenant, msg) => {
-      deps.log.info(
-        { tenantId: tenant.id, kind: msg.kind, waMessageId: msg.waMessageId },
-        'inbound message',
-      );
-    });
+  const onInbound = opts.onInbound ?? ((tenant, msg) => handleInbound(deps, tenant, msg));
   app.route('/', whatsappRoutes(deps, onInbound));
   return app;
 }

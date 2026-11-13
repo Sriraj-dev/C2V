@@ -33,9 +33,9 @@ describe('registry', () => {
 describe('getTenantSettings', () => {
   it('returns values', async () => {
     const db = await createTestDb();
-    await seedTenantRow(db, 'test', { supportPhone: '919999999999', deliveryFeePaise: 1500, minOrderPaise: 5000 });
+    await seedTenantRow(db, 'test', { supportPhone: '919999999999', welcomeImageUrl: null, deliveryFeePaise: 1500, minOrderPaise: 5000 });
     expect(await getTenantSettings(db, 'test')).toEqual({
-      supportPhone: '919999999999', deliveryFeePaise: 1500, minOrderPaise: 5000,
+      supportPhone: '919999999999', welcomeImageUrl: null, deliveryFeePaise: 1500, minOrderPaise: 5000,
     });
   });
   it('returns null supportPhone when column is null', async () => {

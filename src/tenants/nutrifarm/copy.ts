@@ -4,9 +4,16 @@ const lineText = (l: CopyLine) => `• ${l.name} × ${l.qty} — ${l.lineTotal}`
 
 export const nutrifarmCopy: TenantCopy = {
   welcome: (name) =>
-    `Hi${name ? ` ${name}` : ''}! 👋 Welcome to NutriFarm Eggs — fresh farm eggs delivered to your door.\n\nWhat would you like to do?`,
+    `Hi${name ? ` ${name}` : ''}! 👋 Welcome to NutriFarm Eggs — fresh farm eggs delivered to your door.`,
   help: () =>
     'Need help with an order? Our team is happy to help — reach us using the details below.',
+  menuPrompt: () => 'What would you like to do?',
+  menuRows: () => ({
+    order: 'Pick packs and get them delivered',
+    subscribe: 'Weekly deliveries, never run out',
+    myOrders: 'Track your orders and subscriptions',
+    help: 'Talk to the farm',
+  }),
   orderFlowIntro: () =>
     'Let\'s get your eggs ordered 🥚 Tap below to pick your packs and delivery address.\n\nWe deliver to Koramangala, HSR Layout, BTM Layout, Bommanahalli and Marathahalli.',
   subscribeFlowIntro: () =>
