@@ -6,9 +6,7 @@ import { sendMenu } from './menu.js';
 
 // Stubs: each is replaced by its owning task. Until then they show the menu.
 
-/** Task 8 */
-export const sendOrderFlow = (deps: AppDeps, tenant: TenantConfig, customer: Customer) =>
-  sendMenu(deps, tenant, customer);
+export { sendOrderFlow } from './order-flow-handler.js';
 
 /** Task 13 */
 export const sendSubscribeFlow = (deps: AppDeps, tenant: TenantConfig, customer: Customer) =>

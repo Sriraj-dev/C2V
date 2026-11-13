@@ -9,8 +9,8 @@ export const nutrifarm: TenantConfig = {
   wabaId: process.env.NUTRIFARM_WABA_ID || '2294321858083581',
   waTokenEnv: 'NUTRIFARM_WA_TOKEN',
   cashfree: { appIdEnv: 'NUTRIFARM_CF_APP_ID', secretEnv: 'NUTRIFARM_CF_SECRET' },
-  // Filled in by Task 8 once the flows are published.
-  flows: { orderFlowId: '', subscribeFlowId: '' },
+  // order_v1 created 2026-11-13 on WABA 2294321858083581; still DRAFT (publish blocked by Meta, 139000/4233020).
+  flows: { orderFlowId: '1140197861942511', subscribeFlowId: '' },
   orderCodePrefix: 'NF',
   paymentLinkExpiryMinutes: 30,
   subscriptionChargeLeadDays: 2,
