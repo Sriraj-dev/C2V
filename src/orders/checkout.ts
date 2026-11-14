@@ -8,7 +8,7 @@ import type { AppDeps } from '../deps.js';
 import { errInfo } from '../bot/log.js';
 import { formatDeliveryDate } from '../domain/delivery-date.js';
 import { formatPaise } from '../domain/money.js';
-import { findPaymentByProviderRef, insertPayment } from '../payments/payment-repo.js';
+import { findPaymentByProviderRef, insertPayment, type Payment } from '../payments/payment-repo.js';
 import type { TenantConfig } from '../tenants/types.js';
 import { findOrderById, type OrderWithItems } from './order-repo.js';
 
@@ -103,16 +103,39 @@ export async function confirmPaidOrder(deps: AppDeps, tenant: TenantConfig, link
     // A payment that completes after we closed the order must not vanish silently: record it and flag a refund.
     const closedLink = await deps.payments.getPaymentLink(tenant, linkId);
     if (closedLink.status !== 'PAID') return 'already';
-    await deps.db.update(payments).set({ status: 'paid', raw: closedLink }).where(eq(payments.id, payment.id));
-    deps.log.error(
-      { tenantId: tenant.id, orderId: order.id, paidPaise: closedLink.amountPaidPaise },
-      'payment received for closed order; refund needed',
-    );
-    return 'paid_after_close';
+    return recordPaidAfterClose(deps, tenant, payment, order.id, closedLink);
   }
   if (order.status !== 'payment_pending') return 'already';
 
   const link = await deps.payments.getPaymentLink(tenant, linkId);
+  return confirmWithLink(deps, tenant, payment, order, link);
+}
+
+type LinkInfo = Awaited<ReturnType<AppDeps['payments']['getPaymentLink']>>;
+
+async function recordPaidAfterClose(
+  deps: AppDeps,
+  tenant: TenantConfig,
+  payment: Payment,
+  orderId: string,
+  link: LinkInfo,
+): Promise<'paid_after_close'> {
+  await deps.db.update(payments).set({ status: 'paid', raw: link }).where(eq(payments.id, payment.id));
+  deps.log.error(
+    { tenantId: tenant.id, orderId, paidPaise: link.amountPaidPaise },
+    'payment received for closed order; refund needed',
+  );
+  return 'paid_after_close';
+}
+
+/** Confirms a payment_pending order from an already-fetched link; shared by confirmPaidOrder and expireUnpaidOrder. */
+async function confirmWithLink(
+  deps: AppDeps,
+  tenant: TenantConfig,
+  payment: Payment,
+  order: OrderWithItems,
+  link: LinkInfo,
+): Promise<ConfirmResult> {
   if (link.status !== 'PAID') return 'not_paid';
   if (link.amountPaidPaise !== order.totalPaise) {
     deps.log.error(
@@ -132,7 +155,12 @@ export async function confirmPaidOrder(deps: AppDeps, tenant: TenantConfig, link
     await tx.update(payments).set({ status: 'paid', raw: link }).where(eq(payments.id, payment.id));
     return true;
   });
-  if (!flipped) return 'already';
+  if (!flipped) {
+    // Lost a race: if the order was closed (e.g. expired) in the meantime, the customer has still paid.
+    const fresh = await findOrderById(deps.db, tenant.id, order.id);
+    if (fresh && CLOSED_STATUSES.has(fresh.status)) return recordPaidAfterClose(deps, tenant, payment, order.id, link);
+    return 'already';
+  }
 
   const [customer] = await deps.db.select().from(customers).where(and(eq(customers.tenantId, tenant.id), eq(customers.id, order.customerId))).limit(1);
   if (!customer) {
@@ -154,4 +182,57 @@ export async function confirmPaidOrder(deps: AppDeps, tenant: TenantConfig, link
     }
   }
   return 'confirmed';
+}
+
+export type ExpireResult = 'expired' | 'not_expired' | 'not_found' | Exclude<ConfirmResult, 'not_paid'>;
+
+/**
+ * Expires a payment_pending order whose link Cashfree reports EXPIRED/CANCELLED. The webhook is never trusted:
+ * the link status is re-fetched, and a link that is actually PAID is confirmed instead. The status flip is a
+ * conditional UPDATE, so repeated webhooks expire (and notify) exactly once. The message is sent after commit.
+ */
+export async function expireUnpaidOrder(deps: AppDeps, tenant: TenantConfig, linkId: string): Promise<ExpireResult> {
+  const payment = await findPaymentByProviderRef(deps.db, tenant.id, linkId);
+  if (!payment?.orderId) {
+    deps.log.warn({ tenantId: tenant.id }, 'expireUnpaidOrder: no payment for link id');
+    return 'not_found';
+  }
+  const order = await findOrderById(deps.db, tenant.id, payment.orderId);
+  if (!order) {
+    deps.log.warn({ tenantId: tenant.id, paymentId: payment.id }, 'expireUnpaidOrder: payment has no order');
+    return 'not_found';
+  }
+  if (order.status !== 'payment_pending') return 'already';
+
+  const link = await deps.payments.getPaymentLink(tenant, linkId);
+  if (link.status === 'PAID') {
+    const result = await confirmWithLink(deps, tenant, payment, order, link);
+    return result === 'not_paid' ? 'already' : result;
+  }
+  if (link.status !== 'EXPIRED' && link.status !== 'CANCELLED') return 'not_expired';
+
+  const flipped = await deps.db.transaction(async (tx) => {
+    const rows = await tx
+      .update(orders)
+      .set({ status: 'expired' })
+      .where(and(eq(orders.id, order.id), eq(orders.status, 'payment_pending')))
+      .returning({ id: orders.id });
+    if (rows.length === 0) return false;
+    await tx.update(payments).set({ status: 'expired', raw: link }).where(eq(payments.id, payment.id));
+    return true;
+  });
+  if (!flipped) return 'already';
+
+  const [customer] = await deps.db.select().from(customers).where(and(eq(customers.tenantId, tenant.id), eq(customers.id, order.customerId))).limit(1);
+  if (!customer) {
+    deps.log.error({ tenantId: tenant.id, orderId: order.id }, 'expired order has no customer to notify');
+    return 'expired';
+  }
+  const text = tenant.copy.linkExpired({ orderCode: order.orderCode });
+  try {
+    await sendAndLog(deps, tenant, customer, textMsg(text), text);
+  } catch (err) {
+    deps.log.error({ tenantId: tenant.id, orderId: order.id, err: errInfo(err) }, 'link expired send failed');
+  }
+  return 'expired';
 }

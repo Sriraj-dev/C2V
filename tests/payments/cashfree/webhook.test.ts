@@ -32,10 +32,10 @@ describe('verifyCashfreeSignature', () => {
 
 describe('parseCashfreeEvent', () => {
   it('PAID link event -> link_paid', () => {
-    expect(parseCashfreeEvent(JSON.parse(fixture('payment-link-paid')))).toEqual({ type: 'link_paid', linkId: 'c2v_ord_8f3a' });
+    expect(parseCashfreeEvent(JSON.parse(fixture('payment-link-paid')))).toEqual({ type: 'link_paid', linkId: 'c2v_ord_8f3a', linkStatus: 'PAID' });
   });
   it('EXPIRED link event (order null) -> link_status', () => {
-    expect(parseCashfreeEvent(JSON.parse(fixture('payment-link-expired')))).toEqual({ type: 'link_status', linkId: 'c2v_ord_8f3a' });
+    expect(parseCashfreeEvent(JSON.parse(fixture('payment-link-expired')))).toEqual({ type: 'link_status', linkId: 'c2v_ord_8f3a', linkStatus: 'EXPIRED' });
   });
   it('subscription status change', () => {
     expect(parseCashfreeEvent(JSON.parse(fixture('subscription-status-changed')))).toEqual({

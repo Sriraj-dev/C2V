@@ -20,8 +20,9 @@ import { viaTestNumber } from './lib/meta-test-number.js';
  * Dev tool: creates a payment_pending order for one phone and sends the real Pay button (real Cashfree link,
  * real WhatsApp send). Pay the link, and the running server's webhook confirms the order.
  *
- *   pnpm checkout:test --to 91XXXXXXXXXX [--via test|bot]
+ *   pnpm checkout:test --to 91XXXXXXXXXX [--via test|bot] [--expiry-minutes N]
  *
+ * --expiry-minutes overrides the tenant's link expiry (e.g. 3 to watch the EXPIRED webhook arrive).
  * --via test (default) sends from Meta's test number; the phone must have messaged that number in the last 24h.
  * The server receiving the Cashfree webhook must run with NUTRIFARM_WA_PHONE_NUMBER_ID=1444268992103737 so the
  * confirmation is also sent from the test number.
@@ -30,16 +31,24 @@ const { values } = parseArgs({
   options: {
     to: { type: 'string' },
     via: { type: 'string', default: 'test' },
+    'expiry-minutes': { type: 'string' },
   },
 });
 const to = values.to?.replace(/\D/g, '');
-if (!to || to.length < 10 || !['test', 'bot'].includes(values.via!)) {
-  console.error('Usage: pnpm checkout:test --to 91XXXXXXXXXX [--via test|bot]');
+const expiryMinutes = values['expiry-minutes'] === undefined ? undefined : Number(values['expiry-minutes']);
+if (
+  !to ||
+  to.length < 10 ||
+  !['test', 'bot'].includes(values.via!) ||
+  (expiryMinutes !== undefined && (!Number.isInteger(expiryMinutes) || expiryMinutes < 1 || expiryMinutes > 1440))
+) {
+  console.error('Usage: pnpm checkout:test --to 91XXXXXXXXXX [--via test|bot] [--expiry-minutes 1-1440]');
   process.exit(1);
 }
 
 const env = loadEnv(process.env);
-const tenant: TenantConfig = values.via === 'test' ? viaTestNumber(nutrifarm, '') : nutrifarm;
+const base: TenantConfig = values.via === 'test' ? viaTestNumber(nutrifarm, '') : nutrifarm;
+const tenant: TenantConfig = expiryMinutes ? { ...base, paymentLinkExpiryMinutes: expiryMinutes } : base;
 
 async function customerFor(db: Db, phone: string): Promise<Customer> {
   const [existing] = await db

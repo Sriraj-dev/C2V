@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export type CashfreeEvent =
-  | { type: 'link_paid' | 'link_status'; linkId: string }
+  | { type: 'link_paid' | 'link_status'; linkId: string; linkStatus?: string }
   | { type: 'subscription_status'; subscriptionId: string; status: string }
   | { type: 'subscription_charge'; subscriptionId: string; paymentId: string; success: boolean }
   | { type: 'ignored'; raw: string };
@@ -44,7 +44,8 @@ export function parseCashfreeEvent(body: unknown): CashfreeEvent {
       case 'PAYMENT_LINK_EVENT': {
         const linkId = str(data.link_id);
         if (!linkId) return ignored(body);
-        return { type: data.link_status === 'PAID' ? 'link_paid' : 'link_status', linkId };
+        const linkStatus = str(data.link_status);
+        return { type: linkStatus === 'PAID' ? 'link_paid' : 'link_status', linkId, ...(linkStatus ? { linkStatus } : {}) };
       }
       case 'SUBSCRIPTION_STATUS_CHANGED':
       case 'SUBSCRIPTION_AUTH_STATUS': {

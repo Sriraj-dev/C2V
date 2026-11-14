@@ -7,7 +7,7 @@ import type { Customer } from '../../src/customers/customer-repo.js';
 import type { Db } from '../../src/db/client.js';
 import { customers, orders, payments } from '../../src/db/schema.js';
 import type { AppDeps } from '../../src/deps.js';
-import { confirmPaidOrder } from '../../src/orders/checkout.js';
+import { confirmPaidOrder, expireUnpaidOrder } from '../../src/orders/checkout.js';
 import { FakePaymentProvider, FakeWhatsAppSender, testDeps } from '../helpers/fakes.js';
 import { createTestDb, seedCustomer, seedPincode, seedProduct, seedTenantRow, testTenant } from '../helpers/test-db.js';
 
@@ -239,5 +239,102 @@ describe('confirmPaidOrder', () => {
   it('unknown link id -> not_paid', async () => {
     await paidSetup();
     expect(await confirmPaidOrder(deps, tenant, 'nope')).toBe('not_paid');
+  });
+});
+
+describe('confirmPaidOrder race with expiry', () => {
+  it('order closed between the status check and the flip -> paid_after_close, payment paid, refund logged, no confirmation', async () => {
+    const { c, slotMap } = await setup();
+    const o = await placeOrder(c, slotMap);
+    wa.sent.length = 0;
+    pay.setLink(o.id, 'PAID', 60000);
+    const get = pay.getPaymentLink.bind(pay);
+    pay.getPaymentLink = async (...a: Parameters<typeof get>) => {
+      const r = await get(...a);
+      await db.update(orders).set({ status: 'expired' }).where(eq(orders.id, o.id));
+      return r;
+    };
+    const error = vi.fn();
+    expect(await confirmPaidOrder({ ...deps, log: { ...deps.log, error } as any }, tenant, o.id)).toBe('paid_after_close');
+    expect((await db.select().from(payments))[0]!.status).toBe('paid');
+    expect(error.mock.calls.some((c) => c[1] === 'payment received for closed order; refund needed')).toBe(true);
+    expect(wa.sent).toHaveLength(0);
+  });
+});
+
+describe('expireUnpaidOrder', () => {
+  async function pending() {
+    const { c, slotMap } = await setup();
+    const o = await placeOrder(c, slotMap);
+    wa.sent.length = 0;
+    pay.calls.length = 0;
+    return o;
+  }
+  const orderStatus = async (id: string) => (await db.select().from(orders).where(eq(orders.id, id)))[0]!.status;
+
+  it('EXPIRED link -> order and payment expired, one text with code and "expired"; second call is already', async () => {
+    const o = await pending();
+    pay.setLink(o.id, 'EXPIRED', 0);
+    expect(await expireUnpaidOrder(deps, tenant, o.id)).toBe('expired');
+    expect(await orderStatus(o.id)).toBe('expired');
+    const [pay0] = await db.select().from(payments);
+    expect(pay0!.status).toBe('expired');
+    expect(pay0!.raw).toMatchObject({ status: 'EXPIRED' });
+    expect(wa.sent).toHaveLength(1);
+    expect(msgs()[0].text.body).toContain(o.orderCode);
+    expect(msgs()[0].text.body).toContain('expired');
+
+    expect(await expireUnpaidOrder(deps, tenant, o.id)).toBe('already');
+    expect(wa.sent).toHaveLength(1);
+  });
+
+  it('CANCELLED link -> expired', async () => {
+    const o = await pending();
+    pay.setLink(o.id, 'CANCELLED', 0);
+    expect(await expireUnpaidOrder(deps, tenant, o.id)).toBe('expired');
+    expect(await orderStatus(o.id)).toBe('expired');
+  });
+
+  it('webhook said EXPIRED but provider says PAID -> confirmed, confirmation sent, no expiry message', async () => {
+    const o = await pending();
+    pay.setLink(o.id, 'PAID', 60000);
+    expect(await expireUnpaidOrder(deps, tenant, o.id)).toBe('confirmed');
+    expect(await orderStatus(o.id)).toBe('confirmed');
+    expect(pay.calls.filter((x) => x.method === 'getPaymentLink')).toHaveLength(1);
+    expect(msgs().some((m) => m.text?.body?.includes('Payment received'))).toBe(true);
+    expect(msgs().some((m) => m.text?.body?.includes('has expired'))).toBe(false);
+  });
+
+  it('provider says ACTIVE -> not_expired, nothing changes', async () => {
+    const o = await pending();
+    expect(await expireUnpaidOrder(deps, tenant, o.id)).toBe('not_expired');
+    expect(await orderStatus(o.id)).toBe('payment_pending');
+    expect((await db.select().from(payments))[0]!.status).toBe('created');
+    expect(wa.sent).toHaveLength(0);
+  });
+
+  it('already-confirmed order -> already, no provider call', async () => {
+    const o = await pending();
+    pay.setLink(o.id, 'PAID', 60000);
+    await confirmPaidOrder(deps, tenant, o.id);
+    pay.calls.length = 0;
+    wa.sent.length = 0;
+    expect(await expireUnpaidOrder(deps, tenant, o.id)).toBe('already');
+    expect(pay.calls).toHaveLength(0);
+    expect(wa.sent).toHaveLength(0);
+  });
+
+  it('unknown link -> not_found', async () => {
+    expect(await expireUnpaidOrder(deps, tenant, 'nope')).toBe('not_found');
+  });
+
+  it('a failing send is logged and still returns expired', async () => {
+    const o = await pending();
+    pay.setLink(o.id, 'EXPIRED', 0);
+    wa.send = async () => {
+      throw new Error('boom');
+    };
+    expect(await expireUnpaidOrder(deps, tenant, o.id)).toBe('expired');
+    expect(await orderStatus(o.id)).toBe('expired');
   });
 });

@@ -31,6 +31,8 @@ export const nutrifarmCopy: TenantCopy = {
     `Here is your order *${o.orderCode}*:\n\n${o.lines.map(lineText).join('\n')}\n\n*Total: ${o.total}*\nDelivery: ${o.deliveryDate}\n\nTap *Pay* below. The link is valid for 30 minutes.`,
   orderConfirmed: (o) =>
     `Payment received, thank you! 🎉 Your order *${o.orderCode}* is confirmed and will arrive on ${o.deliveryDate}.`,
+  linkExpired: (o) =>
+    `Your payment link for order *${o.orderCode}* has expired. Tap *Order Eggs* in the menu to order again.`,
   subscriptionSummary: (o) =>
     `Your weekly subscription:\n\n${o.lines.map(lineText).join('\n')}\n\n*${o.perDelivery}* per delivery, every ${o.weekdayName}.\nFirst delivery: ${o.firstDelivery}\n\nTap below to authorise the payment mandate.`,
   subscriptionActive: (o) =>

@@ -16,6 +16,7 @@ describe('nutrifarm copy', () => {
       c.notServiceable('560001'),
       c.orderSummary({ orderCode: 'NF-ABC234', lines, total: '₹180', deliveryDate: 'Wed, 18 Nov' }),
       c.orderConfirmed({ orderCode: 'NF-ABC234', deliveryDate: 'Wed, 18 Nov' }),
+      c.linkExpired({ orderCode: 'NF-ABC234' }),
       c.subscriptionSummary({ lines, perDelivery: '₹180', weekdayName: 'Wednesday', firstDelivery: 'Wed, 18 Nov' }),
       c.subscriptionActive({ firstDelivery: 'Wed, 18 Nov' }),
       c.myOrders([], []),
@@ -38,4 +39,10 @@ describe('nutrifarm copy', () => {
       'We deliver to Koramangala, HSR Layout, BTM Layout, Bommanahalli and Marathahalli.',
     );
   });
+});
+
+it('linkExpired text is exact', () => {
+  expect(c.linkExpired({ orderCode: 'NF-ABC234' })).toBe(
+    'Your payment link for order *NF-ABC234* has expired. Tap *Order Eggs* in the menu to order again.',
+  );
 });

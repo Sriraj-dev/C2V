@@ -4,7 +4,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { errInfo } from '../bot/log.js';
 import { subscriptions } from '../db/schema.js';
 import type { AppDeps } from '../deps.js';
-import { confirmPaidOrder } from '../orders/checkout.js';
+import { confirmPaidOrder, expireUnpaidOrder } from '../orders/checkout.js';
 import { parseCashfreeEvent, verifyCashfreeSignature } from '../payments/cashfree/webhook.js';
 import { findPaymentByProviderRef } from '../payments/payment-repo.js';
 import { tenantById } from '../tenants/registry.js';
@@ -63,14 +63,17 @@ export function cashfreeRoutes(deps: AppDeps): Hono {
       }
 
       if (event.type === 'link_paid' || event.type === 'link_status') {
-        const result = await confirmPaidOrder(deps, tenant, event.linkId);
-        deps.log.info({ tenantId, type: event.type, result }, 'cashfree link event handled');
+        const closed = event.type === 'link_status' && (event.linkStatus === 'EXPIRED' || event.linkStatus === 'CANCELLED');
+        const result = closed
+          ? await expireUnpaidOrder(deps, tenant, event.linkId)
+          : await confirmPaidOrder(deps, tenant, event.linkId);
+        deps.log.info({ tenantId, type: event.type, linkStatus: event.linkStatus, result }, 'cashfree link event handled');
       } else {
-        // Subscription handlers arrive with Task 14.
+        // Subscription handlers are on hold (spec backlog §9 #15).
         deps.log.info({ tenantId, type: event.type }, 'cashfree subscription event received');
       }
     } catch (err) {
-      // Always ack after a verified-or-unverifiable handler failure so Cashfree does not retry forever; the daily job reconciles.
+      // Always ack after a verified-or-unverifiable handler failure so Cashfree does not retry forever; the customer can tap Help, and a reconcile job is a planned improvement (spec backlog #14).
       deps.log.error({ type: event.type, err: errInfo(err) }, 'cashfree webhook handler failed');
     }
     return c.text('ok', 200);

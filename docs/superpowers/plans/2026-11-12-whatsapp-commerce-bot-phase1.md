@@ -475,6 +475,8 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 
 ### Task 13: Subscriptions — Subscribe Flow, Cashfree mandate creation, activation
 
+> **ON HOLD (2026-11-14, user):** subscriptions deferred — spec §9 #15.
+
 **Files:**
 - Create: `src/subscriptions/subscription-service.ts`, `src/bot/subscribe-flow-handler.ts`
 - Modify: `src/channels/whatsapp/flows.ts` (`buildSubscribeFlowJson`), `scripts/publish-flows.ts`, `src/payments/provider.ts` + `src/payments/cashfree/client.ts` (subscription methods), `src/ingress/cashfree-routes.ts`, `src/bot/router.ts`
@@ -505,6 +507,8 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 ---
 
 ### Task 14: Daily job — subscription charges, charge results, expiry, retention, DB size
+
+> **RESCOPED (2026-11-14, user):** only the `PAYMENT_LINK_EVENT` EXPIRED/CANCELLED webhook handling (order + payment → `expired`, customer told the link expired) and message retention. Subscription charges are on hold (spec §9 #15); the missed-webhook reconcile job is deferred (spec §9 #14).
 
 > Note: `payments` is unique on (`subscription_id`, `for_delivery_date`) — a failed charge is never retried with a new row; that delivery is skipped (or the existing row is updated).
 

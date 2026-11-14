@@ -92,6 +92,46 @@ describe('POST /webhooks/cashfree', () => {
     expect(await status(o.id)).toBe('confirmed');
   });
 
+  it('EXPIRED link event (real fixture shape, order null) expires the order and tells the customer', async () => {
+    const o = await placeOrder();
+    pay.setLink(o.id, 'EXPIRED', 0);
+    const body = readFileSync('tests/payments/cashfree/fixtures/payment-link-expired.json', 'utf8').replace('c2v_ord_8f3a', o.id);
+    expect((await post(body)).status).toBe(200);
+    expect(await status(o.id)).toBe('expired');
+    expect(wa.sent).toHaveLength(1);
+    expect((wa.sent[0]!.message as any).text.body).toContain('expired');
+  });
+
+  it('CANCELLED link event expires the order', async () => {
+    const o = await placeOrder();
+    pay.setLink(o.id, 'CANCELLED', 0);
+    expect((await post(linkEvent(o.id, 'CANCELLED'))).status).toBe(200);
+    expect(await status(o.id)).toBe('expired');
+  });
+
+  it.each(['ACTIVE', 'PARTIALLY_PAID'])('%s link_status goes to confirm (paid at provider -> confirmed; not expired)', async (st) => {
+    const o = await placeOrder();
+    pay.setLink(o.id, 'PAID', 18000);
+    expect((await post(linkEvent(o.id, st))).status).toBe(200);
+    expect(await status(o.id)).toBe('confirmed');
+    expect(wa.sent.some((s) => String((s.message as any).text?.body).includes('expired'))).toBe(false);
+  });
+
+  it('ACTIVE link_status with provider ACTIVE leaves the order pending', async () => {
+    const o = await placeOrder();
+    expect((await post(linkEvent(o.id, 'ACTIVE'))).status).toBe(200);
+    expect(await status(o.id)).toBe('payment_pending');
+  });
+
+  it('link_status missing goes to confirm, not expire', async () => {
+    const o = await placeOrder();
+    pay.setLink(o.id, 'EXPIRED', 0);
+    const body = JSON.stringify({ type: 'PAYMENT_LINK_EVENT', version: 1, data: { link_id: o.id } });
+    expect((await post(body)).status).toBe(200);
+    expect(await status(o.id)).toBe('payment_pending');
+    expect(wa.sent).toHaveLength(0);
+  });
+
   it('same webhook again -> still exactly one confirmation', async () => {
     const o = await placeOrder();
     pay.setLink(o.id, 'PAID', 18000);

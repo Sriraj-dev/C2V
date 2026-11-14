@@ -22,6 +22,7 @@ export interface TenantCopy {
   belowMinimum(min: string): string;
   orderSummary(o: { orderCode: string; lines: CopyLine[]; total: string; deliveryDate: string }): string;
   orderConfirmed(o: { orderCode: string; deliveryDate: string }): string;
+  linkExpired(o: { orderCode: string }): string;
   subscriptionSummary(o: {
     lines: CopyLine[];
     perDelivery: string;

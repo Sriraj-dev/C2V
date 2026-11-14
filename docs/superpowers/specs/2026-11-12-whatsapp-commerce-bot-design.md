@@ -55,6 +55,10 @@ products, delivery partners, customers, chats (thread + reply within 24h window)
 Single vendor login created manually. Delivery partners have no login; they filter by
 assignment.
 
+**Needs refund list** (added 2026-11-14): payments marked `paid` whose order is `expired`/`cancelled`
+(late payment after the link closed; the server logs "refund needed"). Show order code, customer,
+amount and paid time, with a Refund button that calls Task 15's `refundOrder`. No email alert for now.
+
 ## 5. Architecture
 
 Feature-oriented modules behind small ports so tenants and providers are swappable:
@@ -106,3 +110,6 @@ delivery/read ticks, multi-language, catalog, Flow data endpoint.
 11. COD.
 12. Close Supabase's public Data API: enable RLS (no policies) on every table, or turn the Data API off — **do before real customer data lands**. Our server connects as the owner and is unaffected.
 13. Enforce one payment per order in the DB: partial unique index on `payments.order_id` (where not null). Logic already guarantees it; the index turns a future bug into a loud error instead of a silent duplicate.
+14. Reconcile missed payment webhooks: a periodic job that re-checks one-time `payment_pending` orders older than the link expiry with Cashfree (PAID → confirm, else expire). Deferred 2026-11-14: expiry is handled from Cashfree's `PAYMENT_LINK_EVENT` EXPIRED webhook (verified live), and a customer who paid but still sees "Payment pending" in My Orders is told to tap Help.
+15. Subscriptions (plan Tasks 13, the subscription-charge half of 14, and subscription cancel in 15) — on hold since 2026-11-14 at the user's request; the schema, copy and webhook parsing already support them.
+16. Paid-after-close: when a payment lands on an already expired/cancelled order (`paid_after_close`), today only an error log ("refund needed") is written. Add a customer message ("we received your payment after the link expired — refund on its way") and an automatic or dashboard-driven refund.
