@@ -14,7 +14,8 @@ export interface OrderLine {
 }
 
 export type OrderSubmission =
-  | { lines: OrderLine[]; address: Address }
+  /** `phone` is the raw Flow field (unvalidated); the submit handler decides whether it is needed. */
+  | { lines: OrderLine[]; address: Address; phone: string }
   | { error: 'no_items' }
   | { error: 'invalid_pincode'; raw: string }
   | { error: 'invalid_address' };
@@ -62,7 +63,7 @@ export function parseOrderSubmission(
   if (!name || !line1 || name.length > MAX_NAME || line1.length > MAX_LINE1 || landmark.length > MAX_LANDMARK) {
     return { error: 'invalid_address' };
   }
-  return { lines, address: { name, line1, ...(landmark ? { landmark } : {}), pincode } };
+  return { lines, address: { name, line1, ...(landmark ? { landmark } : {}), pincode }, phone: str(response.phone) };
 }
 
 export interface CreateOrderInput {

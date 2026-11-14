@@ -24,6 +24,8 @@ export const nutrifarmCopy: TenantCopy = {
   notServiceable: (pincode) =>
     `Sorry, we don't deliver to ${pincode} yet. We deliver to Koramangala, HSR Layout, BTM Layout, Bommanahalli and Marathahalli.`,
   invalidAddress: () => 'Please enter your name and address and try again.',
+  invalidPhone: () =>
+    'Please enter a valid 10-digit mobile number so we can send your payment link and reach you for delivery.',
   belowMinimum: (min) => `Our minimum order is ${min}. Please add a few more packs and try again.`,
   orderSummary: (o) =>
     `Here is your order *${o.orderCode}*:\n\n${o.lines.map(lineText).join('\n')}\n\n*Total: ${o.total}*\nDelivery: ${o.deliveryDate}\n\nTap *Pay* below. The link is valid for 30 minutes.`,

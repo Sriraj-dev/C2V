@@ -8,15 +8,23 @@ describe('loadEnv', () => {
   it('applies defaults', () => {
     const env = loadEnv({
       DATABASE_URL: 'postgres://x', META_APP_SECRET: 's', META_VERIFY_TOKEN: 'v',
-      GRAPH_API_VERSION: 'v99.0', CASHFREE_ENV: 'sandbox', JOBS_SECRET: 'j',
+      GRAPH_API_VERSION: 'v99.0', CASHFREE_ENV: 'sandbox', JOBS_SECRET: 'j', PUBLIC_BASE_URL: 'https://bot.example.com',
     });
     expect(env.PORT).toBe(8080);
     expect(env.LOG_LEVEL).toBe('info');
   });
+  it('requires PUBLIC_BASE_URL to be a URL', () => {
+    const base = {
+      DATABASE_URL: 'postgres://x', META_APP_SECRET: 's', META_VERIFY_TOKEN: 'v',
+      GRAPH_API_VERSION: 'v99.0', CASHFREE_ENV: 'sandbox', JOBS_SECRET: 'j',
+    };
+    expect(() => loadEnv(base)).toThrow(/PUBLIC_BASE_URL/);
+    expect(() => loadEnv({ ...base, PUBLIC_BASE_URL: 'not a url' })).toThrow(/PUBLIC_BASE_URL/);
+  });
   it('rejects an invalid LOG_LEVEL', () => {
     expect(() => loadEnv({
       DATABASE_URL: 'postgres://x', META_APP_SECRET: 's', META_VERIFY_TOKEN: 'v',
-      GRAPH_API_VERSION: 'v99.0', CASHFREE_ENV: 'sandbox', JOBS_SECRET: 'j',
+      GRAPH_API_VERSION: 'v99.0', CASHFREE_ENV: 'sandbox', JOBS_SECRET: 'j', PUBLIC_BASE_URL: 'https://bot.example.com',
       LOG_LEVEL: 'inf',
     })).toThrow(/LOG_LEVEL/);
   });

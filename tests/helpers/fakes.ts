@@ -44,6 +44,7 @@ export function testDeps(overrides: Partial<AppDeps> = {}): AppDeps {
       GRAPH_API_VERSION: 'v99.0',
       CASHFREE_ENV: 'sandbox',
       JOBS_SECRET: 'jobs',
+      PUBLIC_BASE_URL: 'https://bot.test',
       LOG_LEVEL: 'silent',
     },
     now: () => new Date('2026-01-01T00:00:00Z'),

@@ -24,10 +24,4 @@ export const onSubscribeFlowSubmit = (
   _msg: Extract<InboundMessage, { kind: 'flow_submit' }>,
 ) => sendMenu(deps, tenant, customer);
 
-/** Task 11 */
-export const onLocationShared = (
-  deps: AppDeps,
-  tenant: TenantConfig,
-  customer: Customer,
-  _msg: Extract<InboundMessage, { kind: 'location' }>,
-) => sendMenu(deps, tenant, customer);
+export { onLocationShared } from './location.js';

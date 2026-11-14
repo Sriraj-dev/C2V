@@ -62,10 +62,76 @@ describe('onOrderFlowSubmit', () => {
     expect(await db.select().from(orderItems)).toHaveLength(2);
     const [saved] = await db.select().from(customers).where(eq(customers.id, c.id));
     expect(saved!.defaultAddress).toEqual({ name: 'Asha', line1: '12 MG Rd', pincode: '560035' });
-    expect(text()).toContain(o!.orderCode);
-    expect(text()).toContain('6 pack × 2 — ₹180');
-    expect(text()).toContain('₹600');
-    expect(text()).toContain('Wed, 7 Jan');
+    const i = (wa.sent[0]!.message as any).interactive;
+    expect(i.type).toBe('cta_url');
+    expect(i.action.parameters.display_text).toBe('Pay ₹600');
+    expect(i.action.parameters.url).toBe(`https://payments.test/links/${o!.id}`);
+    expect(i.body.text).toContain(o!.orderCode);
+    expect(i.body.text).toContain('6 pack × 2 — ₹180');
+    expect(i.body.text).toContain('₹600');
+    expect(i.body.text).toContain('Wed, 7 Jan');
+  });
+
+  describe('phone (customers without a WhatsApp phone)', () => {
+    const bsuid = (c: Customer) => ({ ...c });
+    async function bsuidCustomer(slotMapOnly = false) {
+      const p6 = await seedProduct(db, 'test', { name: '6 pack', pricePaise: 9000 });
+      const c = await seedCustomer(db, 'test', { waId: null, bsuid: 'IN.123456789', waKey: 'IN.123456789' });
+      return { c: bsuid(c), slotMap: { '1': p6.id }, slotMapOnly };
+    }
+
+    it('missing or invalid phone -> invalidPhone reply, no order', async () => {
+      const { c, slotMap } = await bsuidCustomer();
+      for (const phone of [undefined, '', '12345', '5987654321', '98765 4321', 'abc']) {
+        await onOrderFlowSubmit(deps, tenant, c, submit(c, slotMap, { ...form, qty_1: '1', ...(phone === undefined ? {} : { phone }) }));
+      }
+      expect(wa.sent.map((_, i) => text(i))).toEqual(Array(6).fill(tenant.copy.invalidPhone()));
+      expect(await orderCount()).toBe(0);
+      expect(tenant.copy.invalidPhone()).toBe(
+        'Please enter a valid 10-digit mobile number so we can send your payment link and reach you for delivery.',
+      );
+    });
+
+    it('+91 98765-43210 -> link created with the phone, address.phone normalised and saved as default', async () => {
+      const { c, slotMap } = await bsuidCustomer();
+      await onOrderFlowSubmit(deps, tenant, c, submit(c, slotMap, { ...form, qty_1: '1', phone: '+91 98765-43210' }));
+      const [o] = await db.select().from(orders);
+      expect(o!.address.phone).toBe('9876543210');
+      const [saved] = await db.select().from(customers).where(eq(customers.id, c.id));
+      expect(saved!.defaultAddress!.phone).toBe('9876543210');
+      const call = (deps.payments as any).calls.find((x: any) => x.method === 'createPaymentLink');
+      expect(call.input.customerPhone).toBe('9876543210');
+      expect(call.input.customerName).toBe('Asha');
+      expect((wa.sent[0]!.message as any).interactive.type).toBe('cta_url');
+    });
+
+    it('accepts 91 and 0 prefixes', async () => {
+      const { c, slotMap } = await bsuidCustomer();
+      for (const phone of ['919876543210', '09876543210']) {
+        await onOrderFlowSubmit(deps, tenant, c, submit(c, slotMap, { ...form, qty_1: '1', phone }));
+      }
+      expect((await db.select().from(orders)).map((o) => o.address.phone)).toEqual(['9876543210', '9876543210']);
+    });
+
+    it('a customer with a WhatsApp phone: phone field is ignored and not stored', async () => {
+      const { c, slotMap } = await setup();
+      await onOrderFlowSubmit(deps, tenant, c, submit(c, slotMap, { ...form, qty_1: '1', phone: '9123456789' }));
+      const [o] = await db.select().from(orders);
+      expect(o!.address.phone).toBeUndefined();
+      const [saved] = await db.select().from(customers).where(eq(customers.id, c.id));
+      expect(saved!.defaultAddress!.phone).toBeUndefined();
+      const call = (deps.payments as any).calls.find((x: any) => x.method === 'createPaymentLink');
+      expect(call.input.customerPhone).toBe('919811112222');
+    });
+
+    it('phone check happens before the minimum-order check and after address checks', async () => {
+      const { c, slotMap } = await bsuidCustomer();
+      await db.execute((await import('drizzle-orm')).sql`update tenants set min_order_paise = 100000`);
+      await onOrderFlowSubmit(deps, tenant, c, submit(c, slotMap, { ...form, qty_1: '1' }));
+      expect(text(0)).toBe(tenant.copy.invalidPhone());
+      await onOrderFlowSubmit(deps, tenant, c, submit(c, slotMap, { ...form, name: ' ', qty_1: '1' }));
+      expect(text(1)).toBe(tenant.copy.invalidAddress());
+    });
   });
 
   it('rejects over-length name/address/landmark', async () => {
@@ -155,9 +221,9 @@ describe('onOrderFlowSubmit', () => {
 
 describe('summary builders', () => {
   it('orderSummaryWithPayButton builds a cta_url within limits', () => {
-    const m = orderSummaryWithPayButton('body text', 'https://pay.example/x') as any;
+    const m = orderSummaryWithPayButton('body text', 'https://pay.example/x', 57000) as any;
     expect(m.interactive.type).toBe('cta_url');
-    expect(m.interactive.action.parameters.display_text).toBe('Pay now');
+    expect(m.interactive.action.parameters.display_text).toBe('Pay ₹570');
     expect(m.interactive.action.parameters.display_text.length).toBeLessThanOrEqual(20);
     expect(m.interactive.body.text.length).toBeLessThanOrEqual(1024);
     expect(m.interactive.action.parameters.url).toBe('https://pay.example/x');

@@ -15,7 +15,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-export type Address = { name: string; line1: string; landmark?: string; pincode: string };
+/** `phone` (10-digit Indian mobile) is only stored for customers without a WhatsApp phone (BSUID-only). */
+export type Address = { name: string; line1: string; landmark?: string; pincode: string; phone?: string };
 export type GeoLocation = { lat: number; lng: number };
 export type ChargeItem = {
   productId: string;

@@ -100,11 +100,12 @@ describe('handleInbound', () => {
     expect(wa.sent.map((s) => s.message.type)).toEqual(['image', 'interactive']);
   });
 
-  it('stub targets fall back to menu', async () => {
+  it('stub targets fall back to menu; a location is saved and acknowledged', async () => {
     await handleInbound(deps, tenant, button('menu:order'));
     await handleInbound(deps, tenant, { ...base(), kind: 'flow_submit', flowToken: 'order:c:r', response: {} });
     await handleInbound(deps, tenant, { ...base(), kind: 'location', lat: 1, lng: 2 });
-    expect(wa.sent).toHaveLength(6);
+    expect(wa.sent).toHaveLength(5);
+    expect((wa.sent[4]!.message as any).text.body).toBe(tenant.copy.locationSaved());
   });
 
   it('image send fails -> list still sent with welcome text, no generic error', async () => {

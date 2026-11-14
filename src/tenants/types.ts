@@ -17,6 +17,7 @@ export interface TenantCopy {
   invalidPincode(raw: string): string;
   notServiceable(pincode: string): string;
   invalidAddress(): string;
+  invalidPhone(): string;
   /** `min` already formatted, e.g. '₹90'. */
   belowMinimum(min: string): string;
   orderSummary(o: { orderCode: string; lines: CopyLine[]; total: string; deliveryDate: string }): string;

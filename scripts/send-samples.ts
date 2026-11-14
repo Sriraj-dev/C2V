@@ -69,7 +69,7 @@ const SAMPLES: Record<string, (deps: AppDeps, t: TenantConfig, c: Customer) => P
       })),
     } as unknown as OrderWithItems;
     const body = buildOrderSummary(t, order, products);
-    await sendAndLog(deps, t, c, orderSummaryWithPayButton(body, 'https://payments.cashfree.com/links/preview'), body);
+    await sendAndLog(deps, t, c, orderSummaryWithPayButton(body, 'https://payments.cashfree.com/links/preview', order.totalPaise), body);
   },
   no_items: (deps, t, c) => sendText(deps, t, c, t.copy.noItems()),
   bad_pincode: (deps, t, c) => sendText(deps, t, c, t.copy.invalidPincode('56003')),
@@ -133,7 +133,7 @@ async function customerFor(db: Db, phone: string): Promise<Customer> {
     .from(customers)
     .where(and(eq(customers.tenantId, nutrifarm.id), eq(customers.waId, phone)))
     .limit(1);
-  return existing ?? upsertCustomer(db, nutrifarm.id, { waId: phone, bsuid: undefined, profileName: undefined } as never);
+  return existing ?? upsertCustomer(db, nutrifarm.id, { waId: phone, bsuid: null, profileName: null });
 }
 
 const sender = new GraphWhatsAppSender(env);

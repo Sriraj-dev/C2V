@@ -9,14 +9,23 @@ const FLOW_JSON_VERSION = '7.3';
 const REQUEST_TIMEOUT_MS = 10_000;
 
 const slots = Array.from({ length: MAX_PRODUCT_SLOTS }, (_, i) => i + 1);
-const PREFILL_KEYS = ['name', 'line1', 'landmark', 'pincode'] as const;
+const PREFILL_KEYS = ['name', 'line1', 'landmark', 'pincode', 'phone'] as const;
+const PREFILL_EXAMPLES: Record<(typeof PREFILL_KEYS)[number], string> = {
+  name: 'Example',
+  line1: 'Example',
+  landmark: 'Example',
+  pincode: '560034',
+  phone: '9876543210',
+};
 const QTY_OPTIONS = Array.from({ length: 11 }, (_, i) => ({ id: String(i), title: String(i) }));
 
 /** Flow JSON is product-independent: labels/visibility arrive in the message's flow_action_payload.data. */
 export function buildOrderFlowJson(): Record<string, unknown> {
   const prefillData = Object.fromEntries(
-    PREFILL_KEYS.map((k) => [`prefill_${k}`, { type: 'string', __example__: k === 'pincode' ? '560034' : 'Example' }]),
+    PREFILL_KEYS.map((k) => [`prefill_${k}`, { type: 'string', __example__: PREFILL_EXAMPLES[k] }]),
   );
+  // BSUID-only customers have no phone on file; the Flow asks them for one (Cashfree links need it).
+  const askPhoneData = { ask_phone: { type: 'boolean', __example__: false } };
   const qtyData = Object.fromEntries(slots.map((i) => [`qty_${i}`, { type: 'string', __example__: '0' }]));
 
   const productsScreen = {
@@ -30,6 +39,7 @@ export function buildOrderFlowJson(): Record<string, unknown> {
         ]),
       ),
       ...prefillData,
+      ...askPhoneData,
     },
     layout: {
       type: 'SingleColumnLayout',
@@ -58,6 +68,7 @@ export function buildOrderFlowJson(): Record<string, unknown> {
             payload: {
               ...Object.fromEntries(slots.map((i) => [`qty_${i}`, `\${form.qty_${i}}`])),
               ...Object.fromEntries(PREFILL_KEYS.map((k) => [`prefill_${k}`, `\${data.prefill_${k}}`])),
+              ask_phone: '${data.ask_phone}',
             },
           },
         },
@@ -69,7 +80,7 @@ export function buildOrderFlowJson(): Record<string, unknown> {
     id: 'ADDRESS',
     title: 'Delivery address',
     terminal: true,
-    data: { ...qtyData, ...prefillData },
+    data: { ...qtyData, ...prefillData, ...askPhoneData },
     layout: {
       type: 'SingleColumnLayout',
       children: [
@@ -106,6 +117,16 @@ export function buildOrderFlowJson(): Record<string, unknown> {
           'init-value': '${data.prefill_pincode}',
         },
         {
+          type: 'TextInput',
+          name: 'phone',
+          label: 'Mobile number',
+          'input-type': 'phone',
+          'helper-text': '10-digit number for payment & delivery',
+          required: false,
+          'init-value': '${data.prefill_phone}',
+          visible: '${data.ask_phone}',
+        },
+        {
           type: 'Footer',
           label: 'Continue',
           // Hidden slots may submit "0", "" or nothing: the submit handler must use only slotMap keys and treat a missing/empty qty as 0.
@@ -117,6 +138,7 @@ export function buildOrderFlowJson(): Record<string, unknown> {
               line1: '${form.line1}',
               landmark: '${form.landmark}',
               pincode: '${form.pincode}',
+              phone: '${form.phone}',
             },
           },
         },
@@ -131,6 +153,7 @@ export function buildOrderFlowJson(): Record<string, unknown> {
 export function orderFlowData(
   products: Product[],
   prefill: Address | null,
+  opts: { askPhone?: boolean } = {},
 ): { data: Record<string, string | boolean>; slotMap: Record<string, string> } {
   if (products.length > MAX_PRODUCT_SLOTS)
     throw new Error(`Order flow supports at most ${MAX_PRODUCT_SLOTS} active products (got ${products.length})`);
@@ -152,6 +175,8 @@ export function orderFlowData(
   data.prefill_line1 = prefill?.line1 ?? '';
   data.prefill_landmark = prefill?.landmark ?? '';
   data.prefill_pincode = prefill?.pincode ?? '';
+  data.prefill_phone = prefill?.phone ?? '';
+  data.ask_phone = opts.askPhone ?? false;
   return { data, slotMap };
 }
 
@@ -303,6 +328,39 @@ export async function publishExistingFlow(
     const err = json.error as { message?: string; code?: number; error_user_msg?: string } | undefined;
     throw new FlowPublishError(
       `Flow ${flowId} publish failed: HTTP ${status}${err?.code !== undefined ? ` code ${err.code}` : ''}: ${
+        err?.error_user_msg ?? err?.message ?? 'unknown error'
+      }`,
+    );
+  }
+}
+
+/** Uploads `flowJson` to an existing DRAFT Flow (not published). Throws FlowPublishError on any failure or validation error. */
+export async function updateFlowJson(
+  env: Pick<Env, 'GRAPH_API_VERSION'>,
+  tenant: TenantConfig,
+  flowId: string,
+  flowJson: object,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  const url = `https://graph.facebook.com/${env.GRAPH_API_VERSION}/${encodeURIComponent(flowId)}/assets`;
+  const form = new FormData();
+  form.append('name', 'flow.json');
+  form.append('asset_type', 'FLOW_JSON');
+  form.append('file', new Blob([JSON.stringify(flowJson)], { type: 'application/json' }), 'flow.json');
+  // No Content-Type header: fetch sets the multipart boundary itself.
+  const { ok, status, json } = await graph(
+    url,
+    { method: 'POST', headers: { Authorization: `Bearer ${tokenFor(tenant)}` }, body: form },
+    fetchImpl,
+  );
+  const errors = json.validation_errors;
+  if (Array.isArray(errors) && errors.length > 0) {
+    throw new FlowPublishError(`Flow validation failed (flow id ${flowId}):\n${JSON.stringify(errors, null, 2)}`);
+  }
+  if (!ok) {
+    const err = json.error as { message?: string; code?: number; error_user_msg?: string } | undefined;
+    throw new FlowPublishError(
+      `Flow ${flowId} update failed: HTTP ${status}${err?.code !== undefined ? ` code ${err.code}` : ''}: ${
         err?.error_user_msg ?? err?.message ?? 'unknown error'
       }`,
     );

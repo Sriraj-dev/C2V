@@ -1,13 +1,14 @@
-import { ctaUrlMsg, flowMsg, textMsg, type OutboundMessage } from '../channels/whatsapp/builders.js';
+import { flowMsg, textMsg } from '../channels/whatsapp/builders.js';
 import { decodeOrderFlowToken, encodeOrderFlowToken, orderFlowData } from '../channels/whatsapp/flows.js';
 import { sendAndLog } from '../channels/whatsapp/sender.js';
 import { findActivePincode, listActiveProducts, type Product } from '../catalog/catalog-repo.js';
 import { saveDefaultAddress, type Customer } from '../customers/customer-repo.js';
 import type { InboundMessage } from '../channels/whatsapp/parse.js';
-import { formatDeliveryDate, nextDeliveryDate } from '../domain/delivery-date.js';
+import { nextDeliveryDate } from '../domain/delivery-date.js';
 import { formatPaise } from '../domain/money.js';
+import { normalizeIndianPhone } from '../payments/cashfree/client.js';
+import { buildOrderSummary, orderSummaryWithPayButton, startPayment } from '../orders/checkout.js';
 import { createOrder, parseOrderSubmission } from '../orders/order-service.js';
-import type { OrderWithItems } from '../orders/order-repo.js';
 import { getTenantSettings } from '../tenants/settings-repo.js';
 import type { AppDeps } from '../deps.js';
 import type { TenantConfig } from '../tenants/types.js';
@@ -30,7 +31,7 @@ export async function sendOrderFlow(deps: AppDeps, tenant: TenantConfig, custome
     const saved = customer.defaultAddress ?? null;
     // First-time customers: prefill the name from their WhatsApp profile.
     const prefill = saved ?? (customer.profileName ? { name: customer.profileName, line1: '', pincode: '' } : null);
-    flowData = orderFlowData(products, prefill);
+    flowData = orderFlowData(products, prefill, { askPhone: !customer.waId });
   } catch (err) {
     deps.log.error({ tenantId: tenant.id, count: products.length, err: errInfo(err) }, 'cannot build order flow data; sending menu instead');
     return sendMenu(deps, tenant, customer);
@@ -53,28 +54,18 @@ export async function sendOrderFlow(deps: AppDeps, tenant: TenantConfig, custome
   );
 }
 
-/** Pure: the order summary body text (lines, total, delivery date) from the tenant copy. */
-export function buildOrderSummary(tenant: TenantConfig, order: OrderWithItems, products: Pick<Product, 'id' | 'name'>[] = []): string {
-  const names = new Map(products.map((p) => [p.id, p.name]));
-  return tenant.copy.orderSummary({
-    orderCode: order.orderCode,
-    lines: order.items.map((i) => ({
-      name: names.get(i.productId) ?? i.name,
-      qty: i.quantity,
-      lineTotal: formatPaise(i.lineTotalPaise),
-    })),
-    total: formatPaise(order.totalPaise),
-    deliveryDate: formatDeliveryDate(order.deliveryDate),
-  });
-}
-
-/** Summary with the Pay button (used by Task 11's startPayment). */
-export function orderSummaryWithPayButton(body: string, payUrl: string): OutboundMessage {
-  return ctaUrlMsg({ body, buttonText: 'Pay now', url: payUrl });
-}
+export { buildOrderSummary, orderSummaryWithPayButton };
 
 async function reply(deps: AppDeps, tenant: TenantConfig, customer: Customer, text: string): Promise<void> {
   await sendAndLog(deps, tenant, customer, textMsg(text), text);
+}
+
+function tryNormalizePhone(raw: string): string | null {
+  try {
+    return normalizeIndianPhone(raw);
+  } catch {
+    return null;
+  }
 }
 
 /** Flow submit: validate, create a payment_pending order, reply with the summary. Never logs PII. */
@@ -97,23 +88,29 @@ export async function onOrderFlowSubmit(
     if (parsed.error === 'invalid_pincode') return reply(deps, tenant, customer, copy.invalidPincode(parsed.raw));
     return reply(deps, tenant, customer, copy.invalidAddress());
   }
+  // Customers without a WhatsApp phone (BSUID-only) must give a valid mobile number for the payment link.
+  let address = parsed.address;
+  if (!customer.waId) {
+    const phone = tryNormalizePhone(parsed.phone);
+    if (!phone) return reply(deps, tenant, customer, copy.invalidPhone());
+    address = { ...address, phone };
+  }
   const settings = await getTenantSettings(deps.db, tenant.id);
   const subtotal = parsed.lines.reduce((s, l) => s + l.product.pricePaise * l.quantity, 0);
   if (subtotal < settings.minOrderPaise) {
     return reply(deps, tenant, customer, copy.belowMinimum(formatPaise(settings.minOrderPaise)));
   }
-  const pin = await findActivePincode(deps.db, tenant.id, parsed.address.pincode);
-  if (!pin) return reply(deps, tenant, customer, copy.notServiceable(parsed.address.pincode));
+  const pin = await findActivePincode(deps.db, tenant.id, address.pincode);
+  if (!pin) return reply(deps, tenant, customer, copy.notServiceable(address.pincode));
 
-  await saveDefaultAddress(deps.db, customer.id, parsed.address);
+  await saveDefaultAddress(deps.db, customer.id, address);
   const order = await createOrder(deps, tenant, customer, {
     lines: parsed.lines,
-    address: parsed.address,
+    address,
     location: customer.defaultLocation ?? null,
     status: 'payment_pending',
     source: 'one_time',
     deliveryDate: nextDeliveryDate(deps.now(), pin.deliveryWeekday),
   });
-  // Task 11: replace with startPayment (cta_url Pay button)
-  await reply(deps, tenant, customer, buildOrderSummary(tenant, order, products));
+  await startPayment(deps, tenant, customer, order, products);
 }

@@ -8,6 +8,8 @@ import {
   orderFlowData,
   publishExistingFlow,
   publishFlow,
+  updateFlowJson,
+  FlowPublishError,
 } from '../../../src/channels/whatsapp/flows.js';
 import type { Product } from '../../../src/catalog/catalog-repo.js';
 import { testTenant } from '../../helpers/test-db.js';
@@ -53,7 +55,7 @@ describe('buildOrderFlowJson', () => {
     const footer = screen('ADDRESS').layout.children.find((c: any) => c.type === 'Footer');
     expect(footer['on-click-action'].name).toBe('complete');
     expect(Object.keys(footer['on-click-action'].payload).sort()).toEqual(
-      [...Array.from({ length: 8 }, (_, i) => `qty_${i + 1}`), 'name', 'line1', 'landmark', 'pincode'].sort(),
+      [...Array.from({ length: 8 }, (_, i) => `qty_${i + 1}`), 'name', 'line1', 'landmark', 'pincode', 'phone'].sort(),
     );
   });
 
@@ -81,6 +83,31 @@ describe('buildOrderFlowJson', () => {
       expect(s.data[k], `${id}.data.${k}`).toBeDefined();
       expect(s.data[k].__example__, `${id}.data.${k}.__example__`).toBeDefined();
     }
+  });
+});
+
+describe('ADDRESS phone field', () => {
+  const field = () => screen('ADDRESS').layout.children.find((c: any) => c.name === 'phone');
+  it('is an optional phone TextInput shown only when ask_phone', () => {
+    expect(field()).toMatchObject({
+      type: 'TextInput',
+      'input-type': 'phone',
+      label: 'Mobile number',
+      'helper-text': '10-digit number for payment & delivery',
+      'init-value': '${data.prefill_phone}',
+      visible: '${data.ask_phone}',
+    });
+    expect(field().required).not.toBe(true);
+  });
+  it('completes with phone and forwards ask_phone + prefill_phone from PRODUCTS', () => {
+    const footer = screen('ADDRESS').layout.children.find((c: any) => c.type === 'Footer');
+    expect(footer['on-click-action'].payload.phone).toBe('${form.phone}');
+    const nav = screen('PRODUCTS').layout.children.find((c: any) => c.type === 'Footer')['on-click-action'];
+    expect(nav.payload.ask_phone).toBe('${data.ask_phone}');
+    expect(nav.payload.prefill_phone).toBe('${data.prefill_phone}');
+    expect(screen('PRODUCTS').data.ask_phone.type).toBe('boolean');
+    expect(screen('ADDRESS').data.ask_phone.type).toBe('boolean');
+    expect(screen('ADDRESS').data.prefill_phone).toBeDefined();
   });
 });
 
@@ -116,6 +143,14 @@ describe('orderFlowData', () => {
     expect(Object.keys(slotMap)).toEqual(['1', '2', '3']);
     expect(data.prefill_name).toBe('');
     expect(data.prefill_pincode).toBe('');
+  });
+
+  it('ask_phone defaults to false and is set by opts; phone prefills from the saved address', () => {
+    expect(orderFlowData(three, null).data.ask_phone).toBe(false);
+    expect(orderFlowData(three, null).data.prefill_phone).toBe('');
+    const { data } = orderFlowData(three, { name: 'A', line1: 'x', pincode: '560034', phone: '9876543210' }, { askPhone: true });
+    expect(data.ask_phone).toBe(true);
+    expect(data.prefill_phone).toBe('9876543210');
   });
 
   it('prefills from the saved address', () => {
@@ -225,5 +260,45 @@ describe('publishExistingFlow', () => {
     vi.stubEnv(tenant.waTokenEnv, 'tok');
     const f = vi.fn().mockResolvedValue(resp(400, { error: { code: 139002, message: 'Integrity requirements not met.' } }));
     await expect(publishExistingFlow(env, tenant, '999', f as unknown as typeof fetch)).rejects.toThrow(/139002/);
+  });
+});
+
+describe('updateFlowJson', () => {
+  const tenant = testTenant();
+  const env = { GRAPH_API_VERSION: 'v99.0' };
+  const reply = (status: number, body: unknown) =>
+    vi.fn(async (..._a: any[]) => new Response(JSON.stringify(body), { status }));
+
+  it('uploads flow.json as multipart to the flow assets endpoint', async () => {
+    process.env.TEST_WA_TOKEN = 'tok';
+    const f = reply(200, { success: true, validation_errors: [] });
+    await updateFlowJson(env, tenant, 'flow 1', { version: '7.3' }, f as any);
+    const [url, init] = f.mock.calls[0]!;
+    expect(url).toBe('https://graph.facebook.com/v99.0/flow%201/assets');
+    expect(init.method).toBe('POST');
+    expect(init.headers.Authorization).toBe('Bearer tok');
+    expect(init.headers['Content-Type']).toBeUndefined();
+    const fd = init.body as FormData;
+    expect(fd).toBeInstanceOf(FormData);
+    expect(fd.get('name')).toBe('flow.json');
+    expect(fd.get('asset_type')).toBe('FLOW_JSON');
+    const file = fd.get('file') as File;
+    expect(file.name).toBe('flow.json');
+    expect(file.type).toBe('application/json');
+    expect(JSON.parse(await file.text())).toEqual({ version: '7.3' });
+  });
+
+  it('throws FlowPublishError on validation errors', async () => {
+    process.env.TEST_WA_TOKEN = 'tok';
+    const f = reply(200, { success: true, validation_errors: [{ error: 'INVALID_PROPERTY', message: 'bad' }] });
+    await expect(updateFlowJson(env, tenant, 'f', {}, f as any)).rejects.toThrow(/validation failed[\s\S]*INVALID_PROPERTY/);
+  });
+
+  it('throws FlowPublishError on a non-2xx response', async () => {
+    process.env.TEST_WA_TOKEN = 'tok';
+    const f = reply(400, { error: { message: 'Nope', code: 100 } });
+    const err = await updateFlowJson(env, tenant, 'f', {}, f as any).catch((e) => e);
+    expect(err).toBeInstanceOf(FlowPublishError);
+    expect(err.message).toMatch(/HTTP 400 code 100: Nope/);
   });
 });

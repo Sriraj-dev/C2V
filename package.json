@@ -17,6 +17,7 @@
     "db:seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
     "flows:publish": "tsx --env-file-if-exists=.env scripts/publish-flows.ts",
     "cashfree:check": "tsx --env-file-if-exists=.env scripts/cashfree-link-check.ts",
+    "checkout:test": "tsx --env-file-if-exists=.env scripts/checkout-check.ts",
     "samples:send": "tsx --env-file-if-exists=.env scripts/send-samples.ts"
   },
   "dependencies": {
