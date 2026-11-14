@@ -4,6 +4,7 @@ import { pino } from 'pino';
 import { textMsg, type OutboundMessage } from '../src/channels/whatsapp/builders.js';
 import { GraphWhatsAppSender, sendAndLog, type WhatsAppSender } from '../src/channels/whatsapp/sender.js';
 import { sendHelp, sendMenu } from '../src/bot/menu.js';
+import { sendMyOrders } from '../src/bot/my-orders.js';
 import { buildOrderSummary, orderSummaryWithPayButton, sendOrderFlow } from '../src/bot/order-flow-handler.js';
 import { listActiveProducts } from '../src/catalog/catalog-repo.js';
 import { nextDeliveryDate } from '../src/domain/delivery-date.js';
@@ -25,7 +26,7 @@ import { viaTestNumber } from './lib/meta-test-number.js';
  * Dev tool: sends the bot's real messages (same code paths as the live bot) to one phone so you can see
  * them as a customer would. Writes outbound rows to the dev DB like the bot does.
  *
- *   pnpm samples:send --to 91XXXXXXXXXX [--via test|bot] [--only menu,help,order,summary,no_items,bad_pincode,not_serviceable,below_min,error] [--flow-id <id>] [--draft]
+ *   pnpm samples:send --to 91XXXXXXXXXX [--via test|bot] [--only menu,help,order,my_orders,summary,no_items,bad_pincode,not_serviceable,below_min,error] [--flow-id <id>] [--draft]
  *
  * --via test (default) sends from Meta's test number; the phone must have messaged that number in the last
  *   24h (free-form messages need an open customer-service window).
@@ -38,6 +39,7 @@ const SAMPLES: Record<string, (deps: AppDeps, t: TenantConfig, c: Customer) => P
   menu: sendMenu, // welcome image + list menu
   help: sendHelp, // "Call the farm" button
   order: sendOrderFlow, // order Flow (Order now)
+  my_orders: sendMyOrders, // My Orders (real orders of this phone in the dev DB)
   // In-memory order (nothing is written to the DB): 2x first product, 1x last product.
   summary: async (deps, t, c) => {
     const products = await listActiveProducts(deps.db, t.id);

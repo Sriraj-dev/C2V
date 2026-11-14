@@ -10,10 +10,10 @@ import {
   onLocationShared,
   onOrderFlowSubmit,
   onSubscribeFlowSubmit,
-  sendMyOrders,
   sendOrderFlow,
   sendSubscribeFlow,
 } from './handlers.js';
+import { sendMyOrders } from './my-orders.js';
 import { BTN_HELP, BTN_MY_ORDERS, BTN_ORDER, BTN_SUBSCRIBE, sendHelp, sendMenu } from './menu.js';
 
 export { BTN_HELP, BTN_MY_ORDERS, BTN_ORDER, BTN_SUBSCRIBE };

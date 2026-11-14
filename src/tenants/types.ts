@@ -37,6 +37,8 @@ export interface TenantCopy {
   genericError(): string;
   askLocation(): string;
   locationSaved(): string;
+  /** Appended to My Orders when an order is still awaiting payment. */
+  pendingPaymentNote(): string;
 }
 
 export interface TenantConfig {

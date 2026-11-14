@@ -28,6 +28,11 @@ export function formatDeliveryDate(isoDate: string): string {
   return `${WEEKDAYS[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
 }
 
+/** Full weekday name for 0 (Sunday) to 6 (Saturday); falls back to 'day'. */
+export function weekdayName(weekday: number): string {
+  return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][weekday] ?? 'day';
+}
+
 /** Adds (possibly negative) whole days to a YYYY-MM-DD date using UTC math. */
 export function addDays(isoDate: string, days: number): string {
   const d = parseIso(isoDate);

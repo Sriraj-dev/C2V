@@ -36,7 +36,7 @@ export const nutrifarmCopy: TenantCopy = {
   subscriptionActive: (o) =>
     `Your subscription is active! 🎉 Your first delivery is on ${o.firstDelivery}.`,
   myOrders: (rows, subs) => {
-    if (rows.length === 0 && subs.length === 0) return 'You have no orders yet. Type *menu* to place one.';
+    if (rows.length === 0 && subs.length === 0) return 'No orders yet. Tap *Order Eggs* in the menu below to place your first order.';
     const parts: string[] = [];
     if (rows.length)
       parts.push(
@@ -52,4 +52,6 @@ export const nutrifarmCopy: TenantCopy = {
   genericError: () => 'Sorry, something went wrong on our side. Please try again in a moment.',
   askLocation: () => 'Help our delivery partner find you 📍 — share your location (optional).',
   locationSaved: () => 'Thanks, your location is saved. ✅',
+  pendingPaymentNote: () =>
+    'Already paid but it still shows *Payment pending*? It can take a few minutes to update. If it doesn’t, tap *Help* in the menu and we’ll sort it out.',
 };

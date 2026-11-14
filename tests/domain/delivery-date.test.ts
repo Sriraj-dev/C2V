@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   nextDeliveryDate,
+  weekdayName,
   formatDeliveryDate,
   addDays,
   frequencyStepDays,
@@ -63,5 +64,13 @@ describe('frequencyStepDays', () => {
     expect(frequencyStepDays('weekly')).toBe(7);
     expect(frequencyStepDays('biweekly')).toBe(14);
     expect(frequencyStepDays('monthly')).toBe(28);
+  });
+});
+
+describe('weekdayName', () => {
+  it('names weekdays and falls back', () => {
+    expect(weekdayName(0)).toBe('Sunday');
+    expect(weekdayName(3)).toBe('Wednesday');
+    expect(weekdayName(9)).toBe('day');
   });
 });

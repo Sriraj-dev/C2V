@@ -12,10 +12,6 @@ export { onOrderFlowSubmit, sendOrderFlow } from './order-flow-handler.js';
 export const sendSubscribeFlow = (deps: AppDeps, tenant: TenantConfig, customer: Customer) =>
   sendMenu(deps, tenant, customer);
 
-/** Task 12 */
-export const sendMyOrders = (deps: AppDeps, tenant: TenantConfig, customer: Customer) =>
-  sendMenu(deps, tenant, customer);
-
 /** Task 13 */
 export const onSubscribeFlowSubmit = (
   deps: AppDeps,
