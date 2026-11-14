@@ -16,6 +16,7 @@
     "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
     "db:seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
     "flows:publish": "tsx --env-file-if-exists=.env scripts/publish-flows.ts",
+    "cashfree:check": "tsx --env-file-if-exists=.env scripts/cashfree-link-check.ts",
     "samples:send": "tsx --env-file-if-exists=.env scripts/send-samples.ts"
   },
   "dependencies": {

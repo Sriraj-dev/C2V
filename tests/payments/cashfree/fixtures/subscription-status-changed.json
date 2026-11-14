@@ -1,0 +1,25 @@
+{
+  "data": {
+    "subscription_details": {
+      "cf_subscription_id": "23639356",
+      "subscription_id": "sub_unique_id",
+      "subscription_status": "ACTIVE",
+      "subscription_expiry_time": "2055-08-07T10:30:46",
+      "next_schedule_date": null
+    },
+    "customer_details": {
+      "customer_name": null,
+      "customer_email": "john@dummy.com",
+      "customer_phone": "9900000000"
+    },
+    "plan_details": {
+      "plan_id": "plan_premium",
+      "plan_name": "Premium Plan",
+      "plan_type": "ON_DEMAND",
+      "plan_max_amount": 399.0,
+      "plan_currency": "INR"
+    }
+  },
+  "event_time": "2026-11-14T10:05:00+05:30",
+  "type": "SUBSCRIPTION_STATUS_CHANGED"
+}

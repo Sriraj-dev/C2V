@@ -12,6 +12,7 @@ import { generateOrderCode } from '../src/domain/order-code.js';
 import type { OrderWithItems } from '../src/orders/order-repo.js';
 import { getTenantSettings } from '../src/tenants/settings-repo.js';
 import { loadEnv } from '../src/config/env.js';
+import { CashfreeProvider } from '../src/payments/cashfree/client.js';
 import { upsertCustomer, type Customer } from '../src/customers/customer-repo.js';
 import { createDb, type Db } from '../src/db/client.js';
 import { customers } from '../src/db/schema.js';
@@ -142,7 +143,7 @@ const deps: AppDeps = {
   log: pino({ level: 'warn' }),
   db: createDb(env.DATABASE_URL),
   whatsapp: values.draft ? withDraftMode(sender) : sender,
-  payments: undefined,
+  payments: new CashfreeProvider(env),
 };
 
 console.log(`Sending [${names.join(', ')}] to ${to} via ${values.via} number (${tenant.waPhoneNumberId})`);

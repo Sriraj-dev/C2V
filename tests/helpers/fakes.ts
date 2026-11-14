@@ -3,6 +3,7 @@ import type { OutboundMessage } from '../../src/channels/whatsapp/builders.js';
 import type { WhatsAppSender } from '../../src/channels/whatsapp/sender.js';
 import type { Db } from '../../src/db/client.js';
 import type { AppDeps } from '../../src/deps.js';
+import type { CreatePaymentLinkInput, LinkStatus, PaymentProvider } from '../../src/payments/provider.js';
 import type { TenantConfig } from '../../src/tenants/types.js';
 
 export class FakeWhatsAppSender implements WhatsAppSender {
@@ -49,7 +50,57 @@ export function testDeps(overrides: Partial<AppDeps> = {}): AppDeps {
     log: pino({ level: 'silent' }),
     db: undefined as unknown as Db,
     whatsapp: new FakeWhatsAppSender(),
-    payments: undefined,
+    payments: new FakePaymentProvider(),
     ...overrides,
   };
+}
+
+export type FakePaymentCall =
+  | { method: 'createPaymentLink'; input: CreatePaymentLinkInput }
+  | { method: 'getPaymentLink'; linkId: string }
+  | { method: 'cancelPaymentLink'; linkId: string }
+  | { method: 'refundPaymentLink'; linkId: string; amountPaise: number; refundId: string };
+
+export class FakePaymentProvider implements PaymentProvider {
+  calls: FakePaymentCall[] = [];
+  /** Per-link state returned by getPaymentLink; unset links are ACTIVE with nothing paid. */
+  links = new Map<string, { status: LinkStatus; amountPaidPaise: number }>();
+  /** When set, the next call rejects with this error (then clears). */
+  failNext: Error | undefined;
+
+  setLink(linkId: string, status: LinkStatus, amountPaidPaise = 0): void {
+    this.links.set(linkId, { status, amountPaidPaise });
+  }
+
+  private maybeFail(): void {
+    if (this.failNext) {
+      const e = this.failNext;
+      this.failNext = undefined;
+      throw e;
+    }
+  }
+
+  async createPaymentLink(_t: TenantConfig, input: CreatePaymentLinkInput): Promise<{ linkId: string; url: string }> {
+    this.calls.push({ method: 'createPaymentLink', input });
+    this.maybeFail();
+    if (!this.links.has(input.linkId)) this.setLink(input.linkId, 'ACTIVE', 0);
+    return { linkId: input.linkId, url: `https://payments.test/links/${input.linkId}` };
+  }
+
+  async getPaymentLink(_t: TenantConfig, linkId: string): Promise<{ status: LinkStatus; amountPaidPaise: number }> {
+    this.calls.push({ method: 'getPaymentLink', linkId });
+    this.maybeFail();
+    return this.links.get(linkId) ?? { status: 'ACTIVE', amountPaidPaise: 0 };
+  }
+
+  async cancelPaymentLink(_t: TenantConfig, linkId: string): Promise<void> {
+    this.calls.push({ method: 'cancelPaymentLink', linkId });
+    this.maybeFail();
+    this.setLink(linkId, 'CANCELLED', this.links.get(linkId)?.amountPaidPaise ?? 0);
+  }
+
+  async refundPaymentLink(_t: TenantConfig, linkId: string, amountPaise: number, refundId: string): Promise<void> {
+    this.calls.push({ method: 'refundPaymentLink', linkId, amountPaise, refundId });
+    this.maybeFail();
+  }
 }

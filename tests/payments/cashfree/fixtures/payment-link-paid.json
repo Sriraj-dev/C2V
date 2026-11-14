@@ -1,0 +1,39 @@
+{
+  "data": {
+    "cf_link_id": 55566677,
+    "link_id": "c2v_ord_8f3a",
+    "link_status": "PAID",
+    "link_currency": "INR",
+    "link_amount": "480.00",
+    "link_amount_paid": "480.00",
+    "link_partial_payments": false,
+    "link_purpose": "Order TS-1001",
+    "link_created_at": "2026-11-14T10:00:00+05:30",
+    "link_expiry_time": "2026-11-14T10:30:00+05:30",
+    "link_url": "https://payments.cashfree.com/links/abcXYZ123",
+    "link_notes": {},
+    "link_auto_reminders": false,
+    "customer_details": {
+      "customer_phone": "9999999999",
+      "customer_name": "Test Customer"
+    },
+    "link_meta": {
+      "notify_url": "https://bot.example.com/webhooks/cashfree"
+    },
+    "link_notify": {
+      "send_sms": false,
+      "send_email": false
+    },
+    "order": {
+      "order_id": "CFPay_U1mgll3c0e9g_ehdcjjbtckf",
+      "order_amount": "480.00",
+      "order_expiry_time": "2026-11-14T10:35:00+05:30",
+      "order_hash": "Gb2gC7z0tILhGbZUIeds",
+      "transaction_id": 1021206,
+      "transaction_status": "SUCCESS"
+    }
+  },
+  "type": "PAYMENT_LINK_EVENT",
+  "version": 1,
+  "event_time": "2026-11-14T10:05:00+05:30"
+}

@@ -4,6 +4,7 @@ import { buildApp } from './app.js';
 import { GraphWhatsAppSender } from './channels/whatsapp/sender.js';
 import { createDb } from './db/client.js';
 import { loadEnv } from './config/env.js';
+import { CashfreeProvider } from './payments/cashfree/client.js';
 import { registerTenants } from './tenants/registry.js';
 import { nutrifarm } from './tenants/nutrifarm/config.js';
 
@@ -16,7 +17,7 @@ const app = buildApp({
   log,
   db: createDb(env.DATABASE_URL),
   whatsapp: new GraphWhatsAppSender(env),
-  payments: undefined,
+  payments: new CashfreeProvider(env),
 });
 
 serve({ fetch: app.fetch, port: env.PORT }, (info) => {

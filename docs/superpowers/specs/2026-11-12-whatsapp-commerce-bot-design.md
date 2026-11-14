@@ -105,3 +105,4 @@ delivery/read ticks, multi-language, catalog, Flow data endpoint.
 10. Tech-provider registration + Embedded Signup for onboarding new tenants; encrypted per-tenant secrets in DB.
 11. COD.
 12. Close Supabase's public Data API: enable RLS (no policies) on every table, or turn the Data API off — **do before real customer data lands**. Our server connects as the owner and is unaffected.
+13. Enforce one payment per order in the DB: partial unique index on `payments.order_id` (where not null). Logic already guarantees it; the index turns a future bug into a loud error instead of a silent duplicate.
