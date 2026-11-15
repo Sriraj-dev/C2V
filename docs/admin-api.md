@@ -207,10 +207,32 @@ Messages are kept for 3 days, so these lists are small and not paged.
 | Method & path | Response |
 |---|---|
 | `GET /admin/chats` | `{ items: { customer: { id, profileName, phone }, lastMessage: { direction, text, createdAt }, lastInboundAt: string \| null, canReply: boolean }[] }`, sorted by the latest message first |
-| `GET /admin/chats/:customerId/messages` | `{ customer, canReply, items: { id, direction: 'in' \| 'out', type, text, createdAt }[] }`, oldest first |
-| `POST /admin/chats/:customerId/reply` | body `{ text }` (1–4096 chars) → `201 { message }`. 409 `outside_reply_window` when the customer's last message is older than 24 h (WhatsApp rule). 502 `provider_error` if the send fails |
+| `GET /admin/chats/:customerId/messages` | `{ customer, canReply, items: ChatMessage[] }`, oldest first |
+| `POST /admin/chats/:customerId/reply` | body `{ text }` (1–4096 chars) → `201 { message: ChatMessage }`. 409 `outside_reply_window` when the customer's last message is older than 24 h (WhatsApp rule). 502 `provider_error` if the send fails |
 
 `canReply` = the customer messaged within the last 24 hours.
+
+```ts
+type ChatMessage = {
+  id: string;
+  direction: 'in' | 'out';
+  type: string;        // WhatsApp type: 'text' | 'interactive' | 'image' | 'template' | 'button' | 'flow_submit' | 'location' | ...
+  text: string | null; // short summary for previews, e.g. body text, '[template order_delivered] NF-7K3QX9', '[location 12.9,77.6]'
+  payload: unknown;    // the full message, for a WhatsApp-like view (see below)
+  createdAt: string;
+};
+```
+
+`payload` is stored as-is, so its shape follows WhatsApp Cloud API:
+
+- `direction: 'out'`: the message object we sent to `POST /{phone-number-id}/messages`, without `to`. For example
+  `{ type: 'text', text: { body } }`, `{ type: 'interactive', interactive: { type: 'button' | 'list' | 'flow', header?, body: { text }, footer?, action } }`,
+  `{ type: 'image', image: { link, caption? } }`, `{ type: 'template', template: { name, language, components } }`.
+- `direction: 'in'`: the raw message object from the webhook (`entry[].changes[].value.messages[]`). For example
+  `{ type: 'text', text: { body } }`, `{ type: 'interactive', interactive: { type: 'button_reply', button_reply: { id, title } } }`,
+  `{ type: 'interactive', interactive: { type: 'nfm_reply', nfm_reply: { response_json } } }` (order form), `{ type: 'location', location: { latitude, longitude } }`.
+- A failed send (WhatsApp rejected it) is still logged as `out`; it can be `{}` for old rows. Always fall back to `text` when the
+  payload has a shape the dashboard doesn't draw. The conversation list (`GET /admin/chats`) does not include payloads.
 
 ---
 

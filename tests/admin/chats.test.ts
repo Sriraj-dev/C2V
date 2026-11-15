@@ -31,10 +31,11 @@ async function msg(
   createdAt: Date,
   text: string | null,
   type = 'text',
+  payload: unknown = {},
 ) {
   const [r] = await t.db
     .insert(messages)
-    .values({ tenantId, customerId, direction, type, text, payload: {}, createdAt })
+    .values({ tenantId, customerId, direction, type, text, payload, createdAt })
     .returning();
   return r!;
 }
@@ -94,8 +95,13 @@ describe('GET /admin/chats', () => {
 describe('GET /admin/chats/:customerId/messages', () => {
   it('returns oldest first with customer and canReply, handling null text', async () => {
     const c = await seedCustomer(t.db, 'test', { waId: '919811100001', profileName: 'Anu' });
+    const buttons = {
+      type: 'interactive',
+      interactive: { type: 'button', body: { text: 'Pick one' }, action: { buttons: [{ type: 'reply', reply: { id: 'order', title: 'Order' } }] } },
+    };
     await msg('test', c.id, 'out', ago(5 * MIN), null, 'image');
     await msg('test', c.id, 'in', ago(10 * MIN), 'first');
+    await msg('test', c.id, 'out', ago(MIN), 'Pick one', 'interactive', buttons);
     const r = await get(`/admin/chats/${c.id}/messages`);
     expect(r.status).toBe(200);
     const j = (await r.json()) as any;
@@ -104,8 +110,10 @@ describe('GET /admin/chats/:customerId/messages', () => {
     expect(j.items.map((m: any) => [m.direction, m.type, m.text])).toEqual([
       ['in', 'text', 'first'],
       ['out', 'image', null],
+      ['out', 'interactive', 'Pick one'],
     ]);
-    expect(Object.keys(j.items[0]).sort()).toEqual(['createdAt', 'direction', 'id', 'text', 'type']);
+    expect(Object.keys(j.items[0]).sort()).toEqual(['createdAt', 'direction', 'id', 'payload', 'text', 'type']);
+    expect(j.items[2].payload).toEqual(buttons);
   });
 
   it('404s for other tenant, unknown and malformed ids', async () => {
@@ -126,7 +134,8 @@ describe('POST /admin/chats/:customerId/reply', () => {
     expect(r.status).toBe(201);
     const { message } = (await r.json()) as any;
     expect(message).toMatchObject({ direction: 'out', type: 'text', text: 'On our way' });
-    expect(Object.keys(message).sort()).toEqual(['createdAt', 'direction', 'id', 'text', 'type']);
+    expect(Object.keys(message).sort()).toEqual(['createdAt', 'direction', 'id', 'payload', 'text', 'type']);
+    expect(message.payload.text.body).toBe('On our way');
     expect(t.wa.sent).toHaveLength(1);
     expect(t.wa.sent[0]!.to).toBe('919811100001');
     expect((t.wa.sent[0]!.message as any).text.body).toBe('On our way');

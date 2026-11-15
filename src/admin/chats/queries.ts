@@ -108,6 +108,17 @@ export async function listMessages(db: Db, tenantId: string, customerId: string,
   };
 }
 
+/**
+ * One chat message. `payload` is the full message: for 'out', the WhatsApp message body we sent (text, buttons,
+ * list rows, header, template); for 'in', the raw WhatsApp message object. Lets the dashboard draw a WhatsApp-like view.
+ */
 export function messageView(m: typeof messages.$inferSelect) {
-  return { id: m.id, direction: m.direction, type: m.type, text: m.text, createdAt: m.createdAt.toISOString() };
+  return {
+    id: m.id,
+    direction: m.direction,
+    type: m.type,
+    text: m.text,
+    payload: m.payload,
+    createdAt: m.createdAt.toISOString(),
+  };
 }
