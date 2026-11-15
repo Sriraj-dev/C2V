@@ -1,6 +1,7 @@
 import { and, asc, count, desc, eq, gte, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
 import type { Db } from '../../db/client.js';
 import { customers, orders, payments } from '../../db/schema.js';
+import { localPhoneDigits } from '../search.js';
 import { toOrderViews, type OrderStatus, type OrderView } from './views.js';
 
 export const ACTIVE_STATUSES: OrderStatus[] = ['confirmed', 'assigned', 'out_for_delivery'];
@@ -45,7 +46,7 @@ export async function listOrders(
     if (digits) {
       alts.push(
         sql`${orders.customerId} in (select ${customers.id} from ${customers} where ${customers.tenantId} = ${tenantId} and ${customers.waId} like ${`%${digits}%`})`,
-        sql`${orders.address}->>'phone' like ${`%${digits}%`}`,
+        sql`${orders.address}->>'phone' like ${`%${localPhoneDigits(digits)}%`}`,
       );
     }
     conds.push(or(...alts));

@@ -157,6 +157,14 @@ describe('GET /admin/orders', () => {
     expect(await ids('_')).toEqual([]);
   });
 
+  it('finds a BSUID-only customer order by 91 + 10-digit address phone', async () => {
+    const a = await seedOrder('delivered', { waId: null, phone: '9876543210' });
+    await seedOrder('delivered', { waId: '919822200002' });
+    const ids = async (q: string) => ((await (await get(`/admin/orders?q=${q}`)).json()) as any).items.map((i: any) => i.id);
+    expect(await ids('919876543210')).toEqual([a.id]);
+    expect(await ids('9876543210')).toEqual([a.id]);
+  });
+
   it('rejects bad query values', async () => {
     for (const qs of ['pageSize=101', 'status=bogus', 'deliveryFrom=11-01-2026', 'pincode=12', 'partnerId=nope']) {
       const res = await get(`/admin/orders?${qs}`);
