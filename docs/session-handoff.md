@@ -145,7 +145,7 @@ Dockerfile (+ .dockerignore; verified /health and graceful SIGTERM; 418 MB), `.e
 `0003` (**already applied** to Supabase), `docs/runbook.md`. Also new docs: this file, `docs/user-guide.md`,
 `docs/phase2-dashboard-brief.md`.
 
-Known gap: the WhatsApp menu still shows **Subscribe**, which (on hold) just re-sends the menu.
+Subscribe menu item now replies "under development, coming soon" (subscriptions on hold). Dashboard auth preference: operator-generated username + password per client, no Google auth (see brief §7). Fourth doc: `docs/client-onboarding.md`.
 
 ## 10. Next steps
 

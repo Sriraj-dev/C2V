@@ -80,6 +80,14 @@ describe('handleInbound', () => {
     expect(wa.sent).toHaveLength(2);
   });
 
+  it('menu:subscribe -> coming-soon text (subscriptions on hold), logged', async () => {
+    await handleInbound(deps, tenant, button('menu:subscribe'));
+    expect(wa.sent).toHaveLength(1);
+    expect((wa.sent[0]!.message as any).text.body).toBe(tenant.copy.subscribeComingSoon());
+    const out = (await db.select().from(messages)).filter((r) => r.direction === 'out');
+    expect(out.map((r) => r.text)).toEqual([tenant.copy.subscribeComingSoon()]);
+  });
+
   it('menu:help -> CTA with tel url', async () => {
     await handleInbound(deps, tenant, button('menu:help'));
     const i = interactive(wa.sent[0]!.message);

@@ -135,14 +135,23 @@ Schema source of truth: `src/db/schema.ts`; migrations in `src/db/migrations` (d
   session, never from the request body.
 - **Frontend:** a separate SPA (e.g. React + Vite) served as static files (Cloud Run, Firebase Hosting or
   Cloud Storage), or server-rendered pages from Hono if the user prefers one deployable.
-- **Auth:** simple email + password vendor accounts (new `vendor_users` table: tenant_id, email, password
-  hash, role), httpOnly secure session cookie, CSRF protection, login rate limiting. Accounts created
-  manually by the operator in Phase 2.
+- **Auth (user preference, 2026-11-15): no Google / Supabase Auth.** The C2V operator generates a username +
+  random password per client and hands it over. Store it in a new `vendor_users` table (tenant_id, username,
+  **password hash** (argon2id or bcrypt, never plaintext), active, created_at), created by an operator CLI
+  (e.g. `ENV=prod pnpm vendors:create <tenantId> <username>` prints the generated password once; a reset
+  command too). Not hard-coded in code/env, so passwords can be reset or revoked without a redeploy.
+  Login → httpOnly, Secure, SameSite cookie session (signed or stored server-side) holding the
+  `tenant_id`. Add login rate limiting and CSRF protection for state-changing requests.
+- **Tenant isolation design:** the browser never sends a tenant id. One auth middleware on `/admin/*` resolves
+  the session → `tenant_id` and passes it to every handler. Every repo function takes `tenantId` and filters on
+  it (the existing code already follows this: e.g. `findOrderById(db, tenantId, id)`, `updateStatus(deps,
+  tenant, orderId, …)` match on `id AND tenant_id`). Looking up another tenant's order id therefore returns
+  "not found". Tests per endpoint: tenant A's session can't read, list or modify tenant B's rows.
 
 ## 8. Open decisions (ask the user during brainstorming)
 
 1. Frontend stack and hosting (SPA vs server-rendered; where hosted; domain).
-2. Auth approach: own email/password table vs Supabase Auth vs Google sign-in. One login per tenant or several staff?
+2. Auth: **decided**: operator-generated username + password per client (see §7). Still open: one login per client or several staff logins?
 3. C2V super-admin view (switch tenants, create tenants/vendors) — now or later?
 4. API inside the existing server (recommended) vs a separate service.
 5. Chats reply and human takeover (backlog #1) — in scope?

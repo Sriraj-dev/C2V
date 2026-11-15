@@ -18,6 +18,8 @@ export const nutrifarmCopy: TenantCopy = {
     'Let\'s get your eggs ordered 🥚 Tap below to pick your packs and delivery address.\n\nWe deliver to Koramangala, HSR Layout, BTM Layout, Bommanahalli and Marathahalli.',
   subscribeFlowIntro: () =>
     'Set up a weekly delivery 🥚 Tap below to choose your packs and address. You will never run out of eggs again.',
+  subscribeComingSoon: () =>
+    'Weekly subscriptions are under development and coming soon! 🚧 Meanwhile, tap *Order Eggs* in the menu to place a one-time order.',
   noItems: () => 'It looks like no eggs were selected. Please pick at least one pack and try again.',
   invalidPincode: (raw) =>
     `Sorry, "${raw}" doesn't look like a valid 6-digit pincode. Please check and try again.`,

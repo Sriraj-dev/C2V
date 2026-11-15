@@ -13,6 +13,8 @@ export interface TenantCopy {
   menuRows(): { order: string; subscribe: string; myOrders: string; help: string };
   orderFlowIntro(): string;
   subscribeFlowIntro(): string;
+  /** Reply to the Subscribe menu item while subscriptions are not available. */
+  subscribeComingSoon(): string;
   noItems(): string;
   invalidPincode(raw: string): string;
   notServiceable(pincode: string): string;

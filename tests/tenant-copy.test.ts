@@ -11,6 +11,7 @@ describe('nutrifarm copy', () => {
       c.help(),
       c.orderFlowIntro(),
       c.subscribeFlowIntro(),
+      c.subscribeComingSoon(),
       c.noItems(),
       c.invalidPincode('56003'),
       c.notServiceable('560001'),

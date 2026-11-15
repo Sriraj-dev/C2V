@@ -26,7 +26,7 @@ its own WhatsApp number, products, delivery areas, Cashfree account and orders. 
    - **Order Eggs**: pick packs and get them delivered
    - **My Orders**: recent orders and their status
    - **Help**: a button to call the business
-   - *Subscribe* (weekly deliveries) is **not available yet**.
+   - *Subscribe*: replies that weekly subscriptions are under development and coming soon.
 2. **Order Eggs** opens an order form inside WhatsApp:
    - Screen 1: choose quantities for each pack (prices shown).
    - Screen 2: name, address, landmark, pincode. Customers who chat without a visible phone number also
