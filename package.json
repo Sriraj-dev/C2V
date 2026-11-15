@@ -21,7 +21,8 @@
     "checkout:test": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/checkout-check.ts",
     "db:schedule-cleanup": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/schedule-cleanup.ts",
     "samples:send": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/send-samples.ts",
-    "orders": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/orders.ts"
+    "orders": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/orders.ts",
+    "vendors": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/vendors.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.8",

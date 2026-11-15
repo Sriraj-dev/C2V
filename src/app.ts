@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { adminRoutes } from './admin/app.js';
 import { handleInbound } from './bot/router.js';
 import type { InboundMessage } from './channels/whatsapp/parse.js';
 import type { AppDeps } from './deps.js';
@@ -17,5 +18,6 @@ export function buildApp(deps: AppDeps, opts: AppOpts = {}): Hono {
   const onInbound = opts.onInbound ?? ((tenant, msg) => handleInbound(deps, tenant, msg));
   app.route('/', whatsappRoutes(deps, onInbound));
   app.route('/', cashfreeRoutes(deps));
+  app.route('/admin', adminRoutes(deps));
   return app;
 }
