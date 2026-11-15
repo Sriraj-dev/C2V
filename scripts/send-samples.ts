@@ -35,8 +35,9 @@ printEnvBanner();
  *   24h (free-form messages need an open customer-service window).
  * --flow-id / --draft: the order Flow id on the sending WABA; --draft sends it in draft mode (unpublished Flow).
  */
-const sendText = async (deps: AppDeps, t: TenantConfig, c: Customer, text: string) =>
-  sendAndLog(deps, t, c, textMsg(text), text);
+const sendText = async (deps: AppDeps, t: TenantConfig, c: Customer, text: string): Promise<void> => {
+  await sendAndLog(deps, t, c, textMsg(text), text);
+};
 
 const SAMPLES: Record<string, (deps: AppDeps, t: TenantConfig, c: Customer) => Promise<void>> = {
   menu: sendMenu, // welcome image + list menu

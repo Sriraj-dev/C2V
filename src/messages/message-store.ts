@@ -1,7 +1,7 @@
 import { and, eq, lt } from 'drizzle-orm';
 import type { InboundMessage } from '../channels/whatsapp/parse.js';
 import type { Db } from '../db/client.js';
-import { messages } from '../db/schema.js';
+import { messages, type MessageRow } from '../db/schema.js';
 
 function describeInbound(msg: InboundMessage): { type: string; text: string } {
   switch (msg.kind) {
@@ -52,8 +52,8 @@ export async function recordOutbound(
     text: string | null;
     payload: unknown;
   },
-): Promise<void> {
-  await db.insert(messages).values({
+): Promise<MessageRow> {
+  const [row] = await db.insert(messages).values({
     tenantId: args.tenantId,
     customerId: args.customerId,
     direction: 'out',
@@ -61,7 +61,8 @@ export async function recordOutbound(
     type: args.type,
     text: args.text,
     payload: args.payload ?? {},
-  });
+  }).returning();
+  return row!;
 }
 
 export async function purgeMessagesOlderThan(

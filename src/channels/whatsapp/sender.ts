@@ -2,6 +2,7 @@ import type { Db } from '../../db/client.js';
 import type { Env } from '../../config/env.js';
 import type { Customer } from '../../customers/customer-repo.js';
 import { recipientOf } from '../../customers/customer-repo.js';
+import type { MessageRow } from '../../db/schema.js';
 import { recordOutbound } from '../../messages/message-store.js';
 import type { AppDeps } from '../../deps.js';
 import type { TenantConfig } from '../../tenants/types.js';
@@ -123,7 +124,7 @@ export async function sendAndLog(
   message: OutboundMessage,
   summaryText: string,
   opts?: { replyTo?: string },
-): Promise<void> {
+): Promise<MessageRow> {
   const base = {
     tenantId: tenant.id,
     customerId: customer.id,
@@ -142,5 +143,5 @@ export async function sendAndLog(
     }
     throw e;
   }
-  await recordOutbound(deps.db, { ...base, waMessageId });
+  return recordOutbound(deps.db, { ...base, waMessageId });
 }
