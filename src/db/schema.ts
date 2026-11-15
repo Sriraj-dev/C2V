@@ -124,8 +124,39 @@ export const deliveryPartners = pgTable('delivery_partners', {
   name: text('name').notNull(),
   phone: text('phone').notNull(),
   active: boolean('active').notNull().default(true),
+  accessToken: text('access_token').unique(),
+  accessTokenCreatedAt: timestamp('access_token_created_at', { withTimezone: true }),
   createdAt: createdAt(),
 }).enableRLS();
+
+export const vendorUsers = pgTable(
+  'vendor_users',
+  {
+    id: id(),
+    tenantId: tenantId(),
+    username: text('username').notNull().unique(),
+    passwordHash: text('password_hash').notNull(),
+    active: boolean('active').notNull().default(true),
+    passwordChangedAt: timestamp('password_changed_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('vendor_users_tenant_idx').on(t.tenantId)],
+).enableRLS();
+
+export const vendorSessions = pgTable(
+  'vendor_sessions',
+  {
+    id: id(),
+    vendorUserId: uuid('vendor_user_id')
+      .notNull()
+      .references(() => vendorUsers.id),
+    tenantId: tenantId(),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('vendor_sessions_user_idx').on(t.vendorUserId)],
+).enableRLS();
 
 export const subscriptions = pgTable(
   'subscriptions',
@@ -285,3 +316,6 @@ export type OrderRow = typeof orders.$inferSelect;
 export type SubscriptionRow = typeof subscriptions.$inferSelect;
 export type PaymentRow = typeof payments.$inferSelect;
 export type MessageRow = typeof messages.$inferSelect;
+export type DeliveryPartnerRow = typeof deliveryPartners.$inferSelect;
+export type VendorUserRow = typeof vendorUsers.$inferSelect;
+export type VendorSessionRow = typeof vendorSessions.$inferSelect;

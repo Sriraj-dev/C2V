@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createTestDb } from '../helpers/test-db.js';
 import type { Db } from '../../src/db/client.js';
-import { customers, messages, orders, payments, subscriptions } from '../../src/db/schema.js';
+import { customers, messages, orders, payments, subscriptions, vendorSessions, vendorUsers } from '../../src/db/schema.js';
 import {
   seedTenantRow,
   seedCustomer,
@@ -88,5 +88,22 @@ describe('schema constraints', () => {
   it('seed customer is queryable', async () => {
     const rows = await db.select().from(customers);
     expect(rows.length).toBeGreaterThan(0);
+  });
+
+  it('rejects duplicate vendor usernames', async () => {
+    const row = { tenantId: 'test', username: 'dupvendor', passwordHash: 'h' };
+    await db.insert(vendorUsers).values(row);
+    await expect(db.insert(vendorUsers).values(row)).rejects.toThrow();
+  });
+
+  it('rejects a vendor session with an unknown vendor user', async () => {
+    await expect(
+      db.insert(vendorSessions).values({
+        vendorUserId: '00000000-0000-0000-0000-000000000000',
+        tenantId: 'test',
+        tokenHash: 'th',
+        expiresAt: new Date(Date.now() + 1000),
+      }),
+    ).rejects.toThrow();
   });
 });

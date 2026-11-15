@@ -29,6 +29,13 @@
       "when": 1794717439369,
       "tag": "0003_strange_goblin_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794747169327,
+      "tag": "0004_wise_maddog",
+      "breakpoints": true
     }
   ]
 }
