@@ -4,7 +4,14 @@ import { z } from 'zod';
 import { WhatsAppSendError } from '../channels/whatsapp/sender.js';
 import { errInfo } from '../bot/log.js';
 import type { VendorSessionRow, VendorUserRow } from '../db/schema.js';
-import { InvalidTransitionError, NotSupportedError, OrderNotFoundError } from '../orders/order-status.js';
+import {
+  InvalidTransitionError,
+  NotSupportedError,
+  OrderNotFoundError,
+  PartnerUnavailableError,
+  RefundNotPossibleError,
+} from '../orders/order-status.js';
+import { ProviderError } from '../payments/provider.js';
 import type { TenantConfig } from '../tenants/types.js';
 
 /** Hono env for authenticated vendor routes: `c.get('tenant')` etc. are typed. */
@@ -35,6 +42,9 @@ export function toApiError(err: unknown): ApiError | null {
   if (err instanceof OrderNotFoundError) return new ApiError(404, 'not_found', 'Not found');
   if (err instanceof InvalidTransitionError) return new ApiError(409, 'invalid_transition', err.message);
   if (err instanceof NotSupportedError) return new ApiError(422, 'not_supported', err.message);
+  if (err instanceof PartnerUnavailableError) return new ApiError(409, 'partner_unavailable', err.message);
+  if (err instanceof RefundNotPossibleError) return new ApiError(409, 'refund_not_possible', err.message);
+  if (err instanceof ProviderError) return new ApiError(502, 'provider_error', err.message);
   if (err instanceof WhatsAppSendError) return new ApiError(502, 'provider_error', 'WhatsApp request failed');
   if (isUniqueViolation(err)) return new ApiError(409, 'conflict', 'That value is already in use');
   return null;

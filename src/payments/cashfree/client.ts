@@ -1,6 +1,6 @@
 import type { Env } from '../../config/env.js';
 import type { TenantConfig } from '../../tenants/types.js';
-import type { CreatePaymentLinkInput, LinkStatus, PaymentProvider } from '../provider.js';
+import { ProviderError, type CreatePaymentLinkInput, type LinkStatus, type PaymentProvider } from '../provider.js';
 
 const API_VERSION = '2026-01-01';
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -12,7 +12,7 @@ const LINK_STATUSES: readonly string[] = ['ACTIVE', 'PAID', 'EXPIRED', 'CANCELLE
 const IST_OFFSET_MS = 330 * 60_000;
 
 /** Error from Cashfree or from reaching it. Messages never contain credentials or customer details. */
-export class CashfreeError extends Error {
+export class CashfreeError extends ProviderError {
   constructor(
     message: string,
     /** HTTP status, or 0 for timeouts, network failures and local errors. */

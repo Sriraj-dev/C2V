@@ -29,6 +29,20 @@ export class NotSupportedError extends Error {
   }
 }
 
+export class PartnerUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PartnerUnavailableError';
+  }
+}
+
+export class RefundNotPossibleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RefundNotPossibleError';
+  }
+}
+
 export class OrderNotFoundError extends Error {
   constructor() {
     super('Order not found');
@@ -73,14 +87,14 @@ export async function updateStatus(
 
   const set: Partial<typeof orders.$inferInsert> = { status: to, updatedAt: deps.now() };
   if (to === 'assigned') {
-    if (!opts.partnerId) throw new Error('A delivery partner is required to assign an order');
+    if (!opts.partnerId) throw new PartnerUnavailableError('A delivery partner is required to assign an order');
     const [partner] = await deps.db
       .select()
       .from(deliveryPartners)
       .where(and(eq(deliveryPartners.tenantId, tenant.id), eq(deliveryPartners.id, opts.partnerId)))
       .limit(1);
-    if (!partner) throw new Error('Delivery partner not found for this tenant');
-    if (!partner.active) throw new Error(`Delivery partner ${partner.name} is not active`);
+    if (!partner) throw new PartnerUnavailableError('Delivery partner not found for this tenant');
+    if (!partner.active) throw new PartnerUnavailableError(`Delivery partner ${partner.name} is not active`);
     set.assignedPartnerId = partner.id;
   }
   if (to === 'delivered') set.deliveredAt = deps.now();
@@ -155,9 +169,9 @@ export async function refundOrder(deps: AppDeps, tenant: TenantConfig, orderId: 
     throw new NotSupportedError('Refunds for subscription orders are not supported');
   }
   const payment = await findLinkPayment(deps.db, tenant.id, order.id);
-  if (!payment) throw new Error(`Order ${order.orderCode} has no payment to refund`);
+  if (!payment) throw new RefundNotPossibleError(`Order ${order.orderCode} has no payment to refund`);
   if (payment.status === 'refunded') return 'already_refunded';
-  if (payment.status !== 'paid') throw new Error(`Order ${order.orderCode} payment is ${payment.status}, not paid; nothing to refund`);
+  if (payment.status !== 'paid') throw new RefundNotPossibleError(`Order ${order.orderCode} payment is ${payment.status}, not paid; nothing to refund`);
 
   await deps.payments.refundPaymentLink(tenant, payment.providerRef, payment.amountPaise, refundIdFor(order.id));
 

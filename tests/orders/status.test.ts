@@ -8,6 +8,8 @@ import {
   InvalidTransitionError,
   NotSupportedError,
   OrderNotFoundError,
+  PartnerUnavailableError,
+  RefundNotPossibleError,
   refundIdFor,
   refundOrder,
   updateStatus,
@@ -130,15 +132,15 @@ describe('updateStatus', () => {
 
   it('assign needs a partner, which must be active and belong to the tenant', async () => {
     const o = await seedOrder('confirmed');
-    await expect(updateStatus(deps, tenant, o.id, 'assigned')).rejects.toThrow(/partner is required/);
+    await expect(updateStatus(deps, tenant, o.id, 'assigned')).rejects.toBeInstanceOf(PartnerUnavailableError);
     const inactive = await seedPartner({ active: false });
-    await expect(updateStatus(deps, tenant, o.id, 'assigned', { partnerId: inactive.id })).rejects.toThrow(/not active/);
+    await expect(updateStatus(deps, tenant, o.id, 'assigned', { partnerId: inactive.id })).rejects.toBeInstanceOf(PartnerUnavailableError);
     await seedTenantRow(db, 'other');
     const [foreign] = await db
       .insert(deliveryPartners)
       .values({ tenantId: 'other', name: 'X', phone: '919800000009' })
       .returning();
-    await expect(updateStatus(deps, tenant, o.id, 'assigned', { partnerId: foreign!.id })).rejects.toThrow(/not found/);
+    await expect(updateStatus(deps, tenant, o.id, 'assigned', { partnerId: foreign!.id })).rejects.toBeInstanceOf(PartnerUnavailableError);
     expect((await reload(o.id)).status).toBe('confirmed');
   });
 
@@ -212,13 +214,13 @@ describe('refundOrder', () => {
 
   it('unpaid order throws and calls nothing', async () => {
     const o = await seedOrder('payment_pending', { payment: 'created' });
-    await expect(refundOrder(deps, tenant, o.id)).rejects.toThrow(/not paid/);
+    await expect(refundOrder(deps, tenant, o.id)).rejects.toBeInstanceOf(RefundNotPossibleError);
     expect(pay.calls).toHaveLength(0);
   });
 
   it('order without a payment throws', async () => {
     const o = await seedOrder('confirmed', { payment: null });
-    await expect(refundOrder(deps, tenant, o.id)).rejects.toThrow(/no payment/);
+    await expect(refundOrder(deps, tenant, o.id)).rejects.toBeInstanceOf(RefundNotPossibleError);
   });
 
   it('provider failure throws and leaves the DB unchanged', async () => {

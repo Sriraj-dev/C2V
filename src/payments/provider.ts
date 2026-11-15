@@ -21,3 +21,11 @@ export interface PaymentProvider {
   refundPaymentLink(t: TenantConfig, linkId: string, amountPaise: number, refundId: string): Promise<void>;
   // subscription methods are added in Task 13
 }
+
+/** Any failure talking to the payment provider. Messages must never contain credentials. */
+export class ProviderError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProviderError';
+  }
+}
