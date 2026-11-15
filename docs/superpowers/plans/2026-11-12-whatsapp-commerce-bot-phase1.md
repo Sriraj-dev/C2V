@@ -554,6 +554,8 @@ expect(formatDeliveryDate('2026-11-18')).toBe('Wed, 18 Nov');
 
 ### Task 16: Deployment — Docker, Cloud Run, Scheduler, Meta + Cashfree wiring, smoke test
 
+> **Status 2026-11-15:** local half done — Dockerfile (verified: /health, graceful SIGTERM), `.env.dev`/`.env.prod` split (`ENV=prod pnpm …`), RLS on all tables (applied), `docs/runbook.md`. Remaining: Cloud Run deploy (waiting for GCP project), real number + Meta webhook, Flow publish, Cashfree production keys, smoke test. Dropped while subscriptions are on hold: Cloud Scheduler `/jobs/daily`, `subscription_charge_failed` template, subscription smoke steps (`JOBS_SECRET` now optional). Message cleanup runs in pg_cron, not Scheduler.
+
 **Files:**
 - Create: `Dockerfile`, `.dockerignore`, `docs/runbook.md`
 - Modify: `.env.example` (all env names incl. `PUBLIC_BASE_URL`, `NUTRIFARM_*`, `SEED_*`)

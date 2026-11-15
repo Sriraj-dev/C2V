@@ -1,0 +1,15 @@
+node_modules
+dist
+.env*
+.git
+.superpowers
+.claude
+.agents
+tests
+docs
+*.md
+CLIENT_CHECKLIST.md
+LEARNING.md
+skills-lock.json
+coverage
+.DS_Store

@@ -8,7 +8,8 @@ const schema = z.object({
   META_VERIFY_TOKEN: z.string().min(1),
   GRAPH_API_VERSION: z.string().min(1),
   CASHFREE_ENV: z.enum(['sandbox', 'production']),
-  JOBS_SECRET: z.string().min(1),
+  /** Reserved for the subscriptions daily job (on hold). */
+  JOBS_SECRET: z.string().min(1).optional(),
   /** Public https origin of this server (Cashfree webhook callbacks); trailing slash is stripped where used. */
   PUBLIC_BASE_URL: z.string().url(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),

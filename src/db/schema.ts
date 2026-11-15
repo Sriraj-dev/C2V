@@ -70,7 +70,7 @@ export const tenants = pgTable('tenants', {
   minOrderPaise: integer('min_order_paise').notNull().default(0),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
-});
+}).enableRLS();
 
 export const customers = pgTable(
   'customers',
@@ -87,7 +87,7 @@ export const customers = pgTable(
     createdAt: createdAt(),
   },
   (t) => [unique('customers_tenant_wa_key_uq').on(t.tenantId, t.waKey)],
-);
+).enableRLS();
 
 export const products = pgTable(
   'products',
@@ -102,7 +102,7 @@ export const products = pgTable(
     createdAt: createdAt(),
   },
   (t) => [unique('products_tenant_sku_uq').on(t.tenantId, t.sku)],
-);
+).enableRLS();
 
 export const pincodes = pgTable(
   'pincodes',
@@ -116,7 +116,7 @@ export const pincodes = pgTable(
     createdAt: createdAt(),
   },
   (t) => [unique('pincodes_tenant_pincode_uq').on(t.tenantId, t.pincode)],
-);
+).enableRLS();
 
 export const deliveryPartners = pgTable('delivery_partners', {
   id: id(),
@@ -125,7 +125,7 @@ export const deliveryPartners = pgTable('delivery_partners', {
   phone: text('phone').notNull(),
   active: boolean('active').notNull().default(true),
   createdAt: createdAt(),
-});
+}).enableRLS();
 
 export const subscriptions = pgTable(
   'subscriptions',
@@ -152,7 +152,7 @@ export const subscriptions = pgTable(
     index('subscriptions_tenant_status_next_idx').on(t.tenantId, t.status, t.nextDeliveryDate),
     index('subscriptions_customer_idx').on(t.customerId),
   ],
-);
+).enableRLS();
 
 export const subscriptionItems = pgTable(
   'subscription_items',
@@ -171,7 +171,7 @@ export const subscriptionItems = pgTable(
     index('subscription_items_subscription_idx').on(t.subscriptionId),
     index('subscription_items_product_idx').on(t.productId),
   ],
-);
+).enableRLS();
 
 export const orders = pgTable(
   'orders',
@@ -205,7 +205,7 @@ export const orders = pgTable(
     index('orders_customer_idx').on(t.customerId),
     index('orders_assigned_partner_idx').on(t.assignedPartnerId),
   ],
-);
+).enableRLS();
 
 export const orderItems = pgTable(
   'order_items',
@@ -228,7 +228,7 @@ export const orderItems = pgTable(
     index('order_items_order_idx').on(t.orderId),
     index('order_items_product_idx').on(t.productId),
   ],
-);
+).enableRLS();
 
 export const payments = pgTable(
   'payments',
@@ -254,7 +254,7 @@ export const payments = pgTable(
     index('payments_order_idx').on(t.orderId),
     index('payments_tenant_idx').on(t.tenantId),
   ],
-);
+).enableRLS();
 
 export const messages = pgTable(
   'messages',
@@ -275,7 +275,7 @@ export const messages = pgTable(
     index('messages_tenant_customer_created_idx').on(t.tenantId, t.customerId, t.createdAt),
     index('messages_created_idx').on(t.createdAt),
   ],
-);
+).enableRLS();
 
 export type TenantRow = typeof tenants.$inferSelect;
 export type CustomerRow = typeof customers.$inferSelect;

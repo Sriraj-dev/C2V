@@ -6,21 +6,22 @@
   "engines": {
     "node": ">=22"
   },
+  "packageManager": "pnpm@10.7.1",
   "scripts": {
-    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
+    "dev": "tsx watch --env-file-if-exists=.env.${ENV:-dev} src/index.ts",
     "build": "tsc -p .",
     "typecheck": "tsc -p tsconfig.typecheck.json --noEmit",
-    "start": "node --env-file-if-exists=.env dist/index.js",
+    "start": "node --env-file-if-exists=.env.${ENV:-dev} dist/index.js",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
-    "db:seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
-    "flows:publish": "tsx --env-file-if-exists=.env scripts/publish-flows.ts",
-    "cashfree:check": "tsx --env-file-if-exists=.env scripts/cashfree-link-check.ts",
-    "checkout:test": "tsx --env-file-if-exists=.env scripts/checkout-check.ts",
-    "db:schedule-cleanup": "tsx --env-file-if-exists=.env scripts/schedule-cleanup.ts",
-    "samples:send": "tsx --env-file-if-exists=.env scripts/send-samples.ts",
-    "orders": "tsx --env-file-if-exists=.env scripts/orders.ts"
+    "db:migrate": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/migrate.ts",
+    "db:seed": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/seed.ts",
+    "flows:publish": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/publish-flows.ts",
+    "cashfree:check": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/cashfree-link-check.ts",
+    "checkout:test": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/checkout-check.ts",
+    "db:schedule-cleanup": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/schedule-cleanup.ts",
+    "samples:send": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/send-samples.ts",
+    "orders": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/orders.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.8",

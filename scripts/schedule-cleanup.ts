@@ -14,6 +14,9 @@
  */
 import postgres from 'postgres';
 import { CLEANUP_JOB_NAME, cleanupJobSql, parseDays } from './lib/cleanup-sql.js';
+import { printEnvBanner } from './lib/env-banner.js';
+
+printEnvBanner();
 
 const days = parseDays(process.argv.slice(2));
 const url = process.env.DATABASE_URL;

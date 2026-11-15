@@ -4,6 +4,9 @@ import { loadEnv } from '../src/config/env.js';
 import { registerTenants, tenantById } from '../src/tenants/registry.js';
 import { nutrifarm } from '../src/tenants/nutrifarm/config.js';
 import { viaTestNumber } from './lib/meta-test-number.js';
+import { printEnvBanner } from './lib/env-banner.js';
+
+printEnvBanner();
 
 // Usage: pnpm flows:publish <tenantId> [--name order_v1] [--flow-id <draft id>]
 // --flow-id publishes an already-created DRAFT instead of creating a new flow.

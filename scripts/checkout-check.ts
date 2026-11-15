@@ -15,6 +15,9 @@ import { CashfreeProvider } from '../src/payments/cashfree/client.js';
 import { nutrifarm } from '../src/tenants/nutrifarm/config.js';
 import type { TenantConfig } from '../src/tenants/types.js';
 import { viaTestNumber } from './lib/meta-test-number.js';
+import { printEnvBanner } from './lib/env-banner.js';
+
+printEnvBanner();
 
 /**
  * Dev tool: creates a payment_pending order for one phone and sends the real Pay button (real Cashfree link,

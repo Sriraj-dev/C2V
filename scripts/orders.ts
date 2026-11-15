@@ -10,6 +10,9 @@ import { findLinkPayment, refundOrder, updateStatus } from '../src/orders/order-
 import { CashfreeProvider } from '../src/payments/cashfree/client.js';
 import { nutrifarm } from '../src/tenants/nutrifarm/config.js';
 import { registerTenants, tenantById } from '../src/tenants/registry.js';
+import { printEnvBanner } from './lib/env-banner.js';
+
+printEnvBanner();
 
 /**
  * Ops tool for vendor order operations (same service functions the Phase 2 dashboard will call).

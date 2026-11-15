@@ -21,6 +21,9 @@ import type { AppDeps } from '../src/deps.js';
 import { nutrifarm } from '../src/tenants/nutrifarm/config.js';
 import type { TenantConfig } from '../src/tenants/types.js';
 import { viaTestNumber } from './lib/meta-test-number.js';
+import { printEnvBanner } from './lib/env-banner.js';
+
+printEnvBanner();
 
 /**
  * Dev tool: sends the bot's real messages (same code paths as the live bot) to one phone so you can see
