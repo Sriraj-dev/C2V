@@ -5,6 +5,7 @@ import type { InboundMessage } from './channels/whatsapp/parse.js';
 import type { AppDeps } from './deps.js';
 import { cashfreeRoutes } from './ingress/cashfree-routes.js';
 import { whatsappRoutes } from './ingress/whatsapp-routes.js';
+import { partnerRoutes } from './partner/routes.js';
 import type { TenantConfig } from './tenants/types.js';
 
 export interface AppOpts {
@@ -19,5 +20,6 @@ export function buildApp(deps: AppDeps, opts: AppOpts = {}): Hono {
   app.route('/', whatsappRoutes(deps, onInbound));
   app.route('/', cashfreeRoutes(deps));
   app.route('/admin', adminRoutes(deps));
+  app.route('/partner', partnerRoutes(deps));
   return app;
 }

@@ -37,6 +37,11 @@ export interface OrderView {
   deliveredAt: string | null;
 }
 
+/** The customer's WhatsApp number; for customers without one, the 10-digit number typed in the order form with 91 added. */
+export function orderPhone(waId: string | null | undefined, address: Address): string | null {
+  return waId ?? (address.phone ? `91${address.phone}` : null);
+}
+
 const uniq = <T>(xs: T[]): T[] => [...new Set(xs)];
 
 /** Builds OrderViews for rows already scoped to the tenant. One query each for items, customers,
@@ -82,7 +87,7 @@ export async function toOrderViews(db: Db, tenantId: string, rows: OrderRow[]): 
   return rows.map((r) => {
     const c = customerById.get(r.customerId);
     const p = r.assignedPartnerId ? partnerById.get(r.assignedPartnerId) : undefined;
-    const phone = c?.waId ?? (r.address.phone ? `91${r.address.phone}` : null);
+    const phone = orderPhone(c?.waId, r.address);
     return {
       id: r.id,
       orderCode: r.orderCode,

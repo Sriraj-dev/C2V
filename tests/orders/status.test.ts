@@ -188,6 +188,58 @@ describe('updateStatus', () => {
   });
 });
 
+describe('updateStatus actorPartnerId', () => {
+  it('rejects a partner who is not the assignee and leaves the order unchanged', async () => {
+    const o = await seedOrder('confirmed');
+    const a = await seedPartner();
+    const b = await seedPartner({ name: 'Sita', phone: '919800000002' });
+    await updateStatus(deps, tenant, o.id, 'assigned', { partnerId: b.id });
+    await expect(
+      updateStatus(deps, tenant, o.id, 'out_for_delivery', { actorPartnerId: a.id }),
+    ).rejects.toBeInstanceOf(OrderNotFoundError);
+    expect((await reload(o.id)).status).toBe('assigned');
+    const r = await updateStatus(deps, tenant, o.id, 'out_for_delivery', { actorPartnerId: b.id });
+    expect(r.order.status).toBe('out_for_delivery');
+  });
+
+  it('rejects when the order is reassigned between the load and the update', async () => {
+    const o = await seedOrder('confirmed');
+    const a = await seedPartner();
+    const b = await seedPartner({ name: 'Sita', phone: '919800000002' });
+    await updateStatus(deps, tenant, o.id, 'assigned', { partnerId: a.id });
+    const realUpdate = db.update.bind(db);
+    let first = true;
+    const spy = vi.spyOn(db, 'update').mockImplementation(((tbl: any) => {
+      const b0: any = realUpdate(tbl);
+      if (!first) return b0;
+      first = false;
+      const origSet = b0.set.bind(b0);
+      b0.set = (v: any) => {
+        const sb: any = origSet(v);
+        const origWhere = sb.where.bind(sb);
+        sb.where = (...args: any[]) => {
+          const wb: any = origWhere(...args);
+          const origReturning = wb.returning.bind(wb);
+          wb.returning = async () => {
+            await realUpdate(orders).set({ assignedPartnerId: b.id }).where(eq(orders.id, o.id));
+            return origReturning();
+          };
+          return wb;
+        };
+        return sb;
+      };
+      return b0;
+    }) as any);
+    await expect(
+      updateStatus(deps, tenant, o.id, 'out_for_delivery', { actorPartnerId: a.id }),
+    ).rejects.toBeInstanceOf(OrderNotFoundError);
+    spy.mockRestore();
+    const row = await reload(o.id);
+    expect(row.status).toBe('assigned');
+    expect(row.assignedPartnerId).toBe(b.id);
+  });
+});
+
 describe('refundOrder', () => {
   it('refunds a paid confirmed order: provider once, payment refunded, order cancelled', async () => {
     const o = await seedOrder('confirmed');

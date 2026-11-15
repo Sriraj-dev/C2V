@@ -77,10 +77,12 @@ export async function updateStatus(
   tenant: TenantConfig,
   orderId: string,
   to: TargetStatus,
-  opts: { partnerId?: string } = {},
+  opts: { partnerId?: string; actorPartnerId?: string } = {},
 ): Promise<UpdateStatusResult> {
   const order = await findOrderById(deps.db, tenant.id, orderId);
   if (!order) throw new OrderNotFoundError();
+  // A delivery partner may only move an order that is (still) assigned to them.
+  if (opts.actorPartnerId && order.assignedPartnerId !== opts.actorPartnerId) throw new OrderNotFoundError();
   if (!TRANSITIONS[order.status]?.includes(to)) {
     throw new InvalidTransitionError(`Cannot move order ${order.orderCode} from ${order.status} to ${to}`);
   }
@@ -102,10 +104,20 @@ export async function updateStatus(
   const rows = await deps.db
     .update(orders)
     .set(set)
-    .where(and(eq(orders.id, order.id), eq(orders.tenantId, tenant.id), eq(orders.status, order.status)))
+    .where(
+      and(
+        eq(orders.id, order.id),
+        eq(orders.tenantId, tenant.id),
+        eq(orders.status, order.status),
+        ...(opts.actorPartnerId ? [eq(orders.assignedPartnerId, opts.actorPartnerId)] : []),
+      ),
+    )
     .returning();
   if (rows.length === 0) {
     const fresh = await findOrderById(deps.db, tenant.id, order.id);
+    if (opts.actorPartnerId && (!fresh || fresh.assignedPartnerId !== opts.actorPartnerId)) {
+      throw new OrderNotFoundError();
+    }
     throw new InvalidTransitionError(
       `Order ${order.orderCode} changed concurrently (now ${fresh?.status ?? 'missing'}); cannot move to ${to}`,
     );

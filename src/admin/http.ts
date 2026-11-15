@@ -53,7 +53,7 @@ export function toApiError(err: unknown): ApiError | null {
 export function errorResponse(c: Context, err: unknown, log: Logger): Response {
   const api = toApiError(err);
   if (!api) {
-    log.error({ err: errInfo(err), path: c.req.path }, 'admin request failed');
+    log.error({ err: errInfo(err), path: c.req.path.replace(/\/partner\/[^/]*/, '/partner/[redacted]') }, 'admin request failed');
     return c.json({ error: { code: 'internal', message: 'Internal server error' } }, 500);
   }
   const error: { code: string; message: string; details?: unknown } = { code: api.code, message: api.message };
