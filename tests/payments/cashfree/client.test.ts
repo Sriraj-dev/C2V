@@ -203,19 +203,19 @@ describe('getPaymentLink / cancelPaymentLink', () => {
 
 describe('refundPaymentLink', () => {
   it('finds the PAID order then refunds it', async () => {
-    const { calls, impl } = mockFetch(json([{ order_id: 'CFPay_1' }]), json({ refund_status: 'PENDING' }));
+    const { calls, impl } = mockFetch(json([{ order_id: 'CFPay_1', order_status: 'PAID' }]), json({ refund_status: 'PENDING' }));
     await new CashfreeProvider({ CASHFREE_ENV: 'sandbox' }, impl).refundPaymentLink(tenant, 'c2v_ord_1', 12345, 'ref_1');
-    expect(calls[0]).toMatchObject({ url: 'https://sandbox.cashfree.com/pg/links/c2v_ord_1/orders?status=PAID', method: 'GET' });
+    expect(calls[0]).toMatchObject({ url: 'https://sandbox.cashfree.com/pg/links/c2v_ord_1/orders?status=ALL', method: 'GET' });
     expect(calls[1]).toMatchObject({ url: 'https://sandbox.cashfree.com/pg/orders/CFPay_1/refunds', method: 'POST' });
     expect(calls[1]!.body).toEqual({ refund_amount: 123.45, refund_id: 'ref_1' });
   });
   it('accepts the {data:[...]} list shape', async () => {
-    const { calls, impl } = mockFetch(json({ data: [{ order_id: 'CFPay_9' }] }), json({}));
+    const { calls, impl } = mockFetch(json({ data: [{ order_id: 'CFPay_9', order_status: 'PAID' }] }), json({}));
     await new CashfreeProvider({ CASHFREE_ENV: 'sandbox' }, impl).refundPaymentLink(tenant, 'l', 100, 'ref_9');
     expect(calls[1]!.url).toBe('https://sandbox.cashfree.com/pg/orders/CFPay_9/refunds');
   });
   it('with several PAID orders picks the one whose amount matches, else throws', async () => {
-    const list = [{ order_id: 'A', order_amount: '100.00' }, { order_id: 'B', order_amount: '480.00' }];
+    const list = [{ order_id: 'A', order_amount: '100.00', order_status: 'PAID' }, { order_id: 'B', order_amount: '480.00', order_status: 'PAID' }];
     const ok = mockFetch(json(list), json({}));
     await new CashfreeProvider({ CASHFREE_ENV: 'sandbox' }, ok.impl).refundPaymentLink(tenant, 'l', 48000, 'ref_1');
     expect(ok.calls[1]!.url).toContain('/orders/B/refunds');
@@ -231,8 +231,16 @@ describe('refundPaymentLink', () => {
     expect(calls).toHaveLength(0);
   });
   it('passes through refund_id_already_exists', async () => {
-    const { impl } = mockFetch(json([{ order_id: 'A' }]), json({ code: 'refund_id_already_exists', message: 'dup' }, 400));
+    const { impl } = mockFetch(json([{ order_id: 'A', order_status: 'PAID' }]), json({ code: 'refund_id_already_exists', message: 'dup' }, 400));
     await expect(new CashfreeProvider({ CASHFREE_ENV: 'sandbox' }, impl).refundPaymentLink(tenant, 'l', 100, 'ref_1')).rejects.toMatchObject({ status: 400, code: 'refund_id_already_exists' });
+  });
+  it('ignores non-PAID orders in the ALL listing', async () => {
+    const list = [{ order_id: 'X', order_status: 'ACTIVE', order_amount: 570 }, { order_id: 'P', order_status: 'PAID', order_amount: 570 }];
+    const { calls, impl } = mockFetch(json(list), json({}));
+    await new CashfreeProvider({ CASHFREE_ENV: 'sandbox' }, impl).refundPaymentLink(tenant, 'l', 57000, 'ref_p');
+    expect(calls[1]!.url).toContain('/orders/P/refunds');
+    const none = mockFetch(json([{ order_id: 'X', order_status: 'EXPIRED' }]));
+    await expect(new CashfreeProvider({ CASHFREE_ENV: 'sandbox' }, none.impl).refundPaymentLink(tenant, 'l', 100, 'ref_x')).rejects.toMatchObject({ code: 'no_paid_order' });
   });
   it('throws when there is no PAID order and does not post a refund', async () => {
     const { calls, impl } = mockFetch(json([]));

@@ -19,7 +19,8 @@
     "cashfree:check": "tsx --env-file-if-exists=.env scripts/cashfree-link-check.ts",
     "checkout:test": "tsx --env-file-if-exists=.env scripts/checkout-check.ts",
     "db:schedule-cleanup": "tsx --env-file-if-exists=.env scripts/schedule-cleanup.ts",
-    "samples:send": "tsx --env-file-if-exists=.env scripts/send-samples.ts"
+    "samples:send": "tsx --env-file-if-exists=.env scripts/send-samples.ts",
+    "orders": "tsx --env-file-if-exists=.env scripts/orders.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.8",

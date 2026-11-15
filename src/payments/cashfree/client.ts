@@ -119,9 +119,13 @@ export class CashfreeProvider implements PaymentProvider {
   async refundPaymentLink(t: TenantConfig, linkId: string, amountPaise: number, refundId: string): Promise<void> {
     const refundAmount = paiseToRupees(amountPaise);
     if (!/^[A-Za-z0-9_-]{3,40}$/.test(refundId)) throw new CashfreeError('refund_id must be 3-40 characters of [A-Za-z0-9_-]', 0, 'invalid_refund_id');
-    const listed = await this.call(t, 'GET', `/links/${encodeURIComponent(linkId)}/orders?status=PAID`);
+    // Cashfree only accepts status=ALL here (status=PAID → 400 status_invalid), so filter PAID orders ourselves.
+    const listed = await this.call(t, 'GET', `/links/${encodeURIComponent(linkId)}/orders?status=ALL`);
     const orders = Array.isArray(listed) ? listed : Array.isArray(listed.data) ? listed.data : [];
-    const paid = orders.filter((o: unknown): o is { order_id: string; order_amount?: unknown } => isRecord(o) && typeof o.order_id === 'string');
+    const paid = orders.filter(
+      (o: unknown): o is { order_id: string; order_amount?: unknown } =>
+        isRecord(o) && typeof o.order_id === 'string' && o.order_status === 'PAID',
+    );
     if (paid.length === 0) throw new CashfreeError('No PAID order found for payment link', 0, 'no_paid_order');
     let chosen = paid[0]!;
     if (paid.length > 1) {

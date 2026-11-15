@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { ctaUrlMsg, locationRequestMsg, textMsg, type OutboundMessage } from '../channels/whatsapp/builders.js';
 import { sendAndLog } from '../channels/whatsapp/sender.js';
 import type { Product } from '../catalog/catalog-repo.js';
@@ -119,8 +119,14 @@ async function recordPaidAfterClose(
   payment: Payment,
   orderId: string,
   link: LinkInfo,
-): Promise<'paid_after_close'> {
-  await deps.db.update(payments).set({ status: 'paid', raw: link }).where(eq(payments.id, payment.id));
+): Promise<'paid_after_close' | 'already'> {
+  // A refunded payment must never go back to paid (a redelivered PAID webhook after a refund is a no-op).
+  const rows = await deps.db
+    .update(payments)
+    .set({ status: 'paid', raw: link })
+    .where(and(eq(payments.id, payment.id), ne(payments.status, 'refunded')))
+    .returning({ id: payments.id });
+  if (rows.length === 0) return 'already';
   deps.log.error(
     { tenantId: tenant.id, orderId, paidPaise: link.amountPaidPaise },
     'payment received for closed order; refund needed',
@@ -152,7 +158,10 @@ async function confirmWithLink(
       .where(and(eq(orders.id, order.id), eq(orders.status, 'payment_pending')))
       .returning({ id: orders.id });
     if (rows.length === 0) return false;
-    await tx.update(payments).set({ status: 'paid', raw: link }).where(eq(payments.id, payment.id));
+    await tx
+      .update(payments)
+      .set({ status: 'paid', raw: link })
+      .where(and(eq(payments.id, payment.id), ne(payments.status, 'refunded')));
     return true;
   });
   if (!flipped) {
