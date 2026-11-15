@@ -29,7 +29,8 @@ logged-in vendor's `tenant_id`. A C2V-operator (super-admin) view across tenants
 
 - **Vendor** — one login per tenant (Phase 1 spec: "single vendor login created manually"). Sees only their tenant.
 - **C2V operator** (optional) — creates tenants and vendor logins, can switch between tenants.
-- **Delivery partners have no login.** The vendor filters orders by partner and shares the list (see §4.2).
+- **Vendor** can change their own password from the dashboard (current password + new password; only the hash is stored).
+- **Delivery partners: no username/password. Each gets a private link** (user decision 2026-11-15, see §4.9).
 
 ## 4. Functional requirements
 
@@ -89,6 +90,24 @@ logged-in vendor's `tenant_id`. A C2V-operator (super-admin) view across tenants
 - **Tenant settings** (`tenants` row): support phone (Help button), delivery fee (paise), minimum order
   (paise), welcome image URL.
 - Changes take effect on the customer's next order form. No Meta re-publishing is needed.
+
+### 4.9 Delivery partner link (user decision 2026-11-15)
+- Vendor adds a partner with **name + phone** only. The server generates a random access token (≥ 32 random
+  bytes, base64url) and the dashboard shows the link `https://<dashboard>/p/<token>` with **Copy link** and
+  **Share on WhatsApp** (prefilled `wa.me/<partnerPhone>?text=...`).
+- Storage: new nullable column on `delivery_partners`, e.g. `access_token` (unique) + `access_token_created_at`.
+  The token is stored as-is so the vendor can copy the link again at any time (DB access is already locked by
+  RLS; a hashed token would mean the link can't be re-copied).
+- **Reset link** = replace the token with a new random one (one UPDATE). The old link stops working at once.
+  **Deactivate partner** (`active = false`) also blocks the link. Both are one click in the dashboard.
+- Partner page (`/p/:token`, no login, mobile-first, separate from the vendor dashboard): resolve token →
+  active partner → tenant. Show **only orders assigned to that partner** in status `assigned` /
+  `out_for_delivery` (today and upcoming, plus today's delivered for reference): order code, customer name,
+  tap-to-call phone, address, landmark, map button (`location`), items. No prices, payments or other customers.
+- Actions: **Out for delivery** and **Delivered**, calling the same `updateStatus` (so "Delivered" sends the
+  customer template). Server-side checks: the order belongs to the token's partner and tenant, and is still
+  assigned to that partner. Partners can't cancel, refund, reassign or change their link or password.
+- Rate-limit `/p/*`, never log tokens, and use `Referrer-Policy: no-referrer` on the partner page.
 
 ### 4.8 Hidden while subscriptions are on hold
 - Subscriptions screens (tables `subscriptions`, `subscription_items`, `payments.kind = subscription_charge`)
@@ -158,7 +177,7 @@ Schema source of truth: `src/db/schema.ts`; migrations in `src/db/migrations` (d
 6. Customer notifications on cancel/refund (none today) — add?
 7. Out-for-delivery WhatsApp message (backlog #17, approved template `out_for_delivery_template`) — enable with the dashboard?
 8. Paid-after-close customer message + refund flow (backlog #16).
-9. Delivery partner sharing format (WhatsApp text, PDF/print, a no-login partner link?).
+9. Delivery partner access: **decided**: private link per partner (§4.9).
 10. Do changes need an audit trail (who changed status, when)? Today only `updated_at` exists.
 
 ## 9. Acceptance (first release)
