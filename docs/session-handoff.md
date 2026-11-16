@@ -59,7 +59,8 @@
   db:schedule-cleanup [--days N] | flows:publish <tenant> [--flow-id] [--draft] [--test-number] [--update-json] |
   samples:send --to <phone> [--via test|bot] [--only ...] | cashfree:check create|status |
   checkout:test --to <phone> [--via test|bot] [--expiry-minutes N] |
-  orders <tenant> <orderCode> assign <phone>|out-for-delivery|delivered|cancel|refund`.
+  orders <tenant> <orderCode> assign <phone>|out-for-delivery|delivered|cancel|refund |
+  vendors create <tenantId> <username>|reset-password <username>|deactivate <username>|activate <username>`.
 - Local live testing: ngrok → port 8081; run
   `PORT=8081 NUTRIFARM_WA_PHONE_NUMBER_ID=1444268992103737 NUTRIFARM_WABA_ID=1170580189253457 npx tsx --env-file-if-exists=.env.dev src/index.ts`
   (points the bot at Meta's test number). ngrok URL changes per session → update `PUBLIC_BASE_URL` in `.env.dev`.
@@ -145,10 +146,19 @@ Dockerfile (+ .dockerignore; verified /health and graceful SIGTERM; 418 MB), `.e
 `0003` (**already applied** to Supabase), `docs/runbook.md`. Also new docs: this file, `docs/user-guide.md`,
 `docs/phase2-dashboard-brief.md`.
 
+**Admin API (2026-11-15/16):** branch `feat/admin-api` (off the phase 1 work) is **complete through Task 9**: vendor
+login/sessions, orders and actions, customers, catalogue, settings, partners with private links, partner
+`/partner/:token` API, chats. Contract: `docs/admin-api.md` (the dashboard team reads only this). Migration `0004`
+is **applied to the shared Supabase DB** (2026-11-15), vendor login `nutrifarm` exists, live smoke passed, Ravi's
+partner link generated. Operator CLI: `pnpm vendors create|reset-password|deactivate|activate`.
+
 Subscribe menu item now replies "under development, coming soon" (subscriptions on hold). Dashboard auth preference: operator-generated username + password per client, no Google auth (see brief §7). Fourth doc: `docs/client-onboarding.md`.
 
 ## 10. Next steps
 
+0. **Admin API:** final whole-branch review of `feat/admin-api`, then merge; build the dashboard in the separate
+   repo `C2V_AdminDashboard` (it calls the admin API from its server side, `lib/api`, bearer token in an httpOnly
+   cookie; see `docs/phase2-dashboard-brief.md`); then Task 16 cloud deploy (below).
 1. Get approval and commit Task 16 local half + the three docs.
 2. **Task 16 cloud half** (needs user inputs): user creates GCP project → Cloud Run deploy with Secret Manager
    (runbook) → set `PUBLIC_BASE_URL` in `.env.prod` and redeploy → user adds the **real phone number** (display

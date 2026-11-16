@@ -167,18 +167,25 @@ Schema source of truth: `src/db/schema.ts`; migrations in `src/db/migrations` (d
   tenant, orderId, …)` match on `id AND tenant_id`). Looking up another tenant's order id therefore returns
   "not found". Tests per endpoint: tenant A's session can't read, list or modify tenant B's rows.
 
+**Decided 2026-11-15 (supersedes the cookie and direct-access ideas above):** the dashboard gets all data from the
+**admin API on the bot server** (`/admin/*`, `/partner/*`; contract in `docs/admin-api.md`). It has no database
+access (no direct Supabase/Postgres, no `lib/db`) and never calls Cashfree or Meta. The Next.js side has a
+`lib/api` client used only on the server; the login token returned by the API is stored in an **httpOnly cookie**
+on the Next.js side and sent as `Authorization: Bearer`. The browser never calls the admin API (no CORS).
+Rate limiting (login, `/admin/*`, `/partner/*`) is **deferred** to the backlog.
+
 ## 8. Open decisions (ask the user during brainstorming)
 
-1. Frontend stack and hosting (SPA vs server-rendered; where hosted; domain).
+1. Frontend stack and hosting: **Next.js** (separate repo `C2V_AdminDashboard`) calling the admin API server-side; hosting and domain still open.
 2. Auth: **decided**: operator-generated username + password per client (see §7). Still open: one login per client or several staff logins?
 3. C2V super-admin view (switch tenants, create tenants/vendors) — now or later?
-4. API inside the existing server (recommended) vs a separate service.
+4. API inside the existing server: **decided** (admin API on the bot server, see §7).
 5. Chats reply and human takeover (backlog #1) — in scope?
 6. Customer notifications on cancel/refund (none today) — add?
 7. Out-for-delivery WhatsApp message (backlog #17, approved template `out_for_delivery_template`) — enable with the dashboard?
 8. Paid-after-close customer message + refund flow (backlog #16).
 9. Delivery partner access: **decided**: private link per partner (§4.9).
-10. Do changes need an audit trail (who changed status, when)? Today only `updated_at` exists.
+10. Do changes need an audit trail (who changed status, when)? Today only `updated_at` exists. Deferred to the backlog with rate limiting.
 
 ## 9. Acceptance (first release)
 

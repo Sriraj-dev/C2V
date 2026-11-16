@@ -137,7 +137,11 @@ ENV=prod pnpm db:seed          # inserts the new tenant's rows (idempotent)
    refund a test order.
 3. Check logs: `gcloud run services logs read c2v-bot --region asia-south1`. There should be no unknown-tenant or
    signature-failure warnings for the new number.
-4. Hand the vendor their dashboard login (Phase 2) or explain the order-command workflow until then.
+4. **Create the vendor login** and hand it over: `ENV=prod pnpm vendors create <id> <username>` prints a generated
+   password once; give it to the client securely (they can change it in the dashboard). Reset later with
+   `pnpm vendors reset-password <username>`.
+5. In the dashboard, add the delivery partners and **generate each partner's private link** (copy or share it on
+   WhatsApp). A partner added before migration `0004` needs one "reset link" first.
 
 ---
 
@@ -151,6 +155,7 @@ ENV=prod pnpm db:seed          # inserts the new tenant's rows (idempotent)
 - [ ] Number live + display name approved, WABA subscribed to C2V, `order_delivered` approved, Flow published (§5)
 - [ ] Cashfree sandbox tested, then production keys (§6)
 - [ ] Deployed + smoke test passed (§7)
+- [ ] Vendor login created and handed over; partner links generated (§7)
 
 ## 9. Future improvements that make this easier
 

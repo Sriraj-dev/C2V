@@ -26,8 +26,10 @@ Currently one Supabase project serves both prod and dev, so `DATABASE_URL` in `.
 
 1. Apply migrations from your laptop: `ENV=prod pnpm db:migrate`. The container never runs migrations.
 2. Seed the tenant: `ENV=prod pnpm db:seed`. It only inserts rows that do not exist; it never overwrites vendor edits.
+   Note on migration `0004` (vendor logins, sessions and partner link tokens) was **already applied to the shared Supabase DB on 2026-11-15**; re-running `db:migrate` is a no-op. Partners created before `0004` have no private link: in the dashboard (or `POST /admin/partners/:id/reset-link`) use "reset link" once per partner to generate it.
 3. Schedule the nightly message purge (once per database): `ENV=prod pnpm db:schedule-cleanup` (append `--days N` to change the default of 3). Run it with the `postgres` role connection string. It replaces the existing `purge-old-messages` job, so re-running is safe.
-4. RLS: every table has row level security enabled with no policies, so Supabase's public Data API (anon/authenticated roles) can read nothing. The server connects as `postgres`, which bypasses RLS. A test fails if a new table forgets `.enableRLS()` in `src/db/schema.ts`.
+4. Vendor logins for the dashboard (the admin API, `/admin/*`): create one per tenant with `ENV=prod pnpm vendors create <tenantId> <username>`; it prints a generated password **once**, so hand it over securely (not by chat or email threads that are kept). `ENV=prod pnpm vendors reset-password <username>` issues a new password and ends all sessions; `deactivate <username>` blocks login and ends sessions; `activate <username>` re-enables it. The `nutrifarm` tenant's login was created on 2026-11-15. Sessions last 30 days.
+5. RLS: every table has row level security enabled with no policies, so Supabase's public Data API (anon/authenticated roles) can read nothing. The server connects as `postgres`, which bypasses RLS. A test fails if a new table forgets `.enableRLS()` in `src/db/schema.ts`.
 
 ## 4. Cloud Run
 

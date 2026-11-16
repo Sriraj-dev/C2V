@@ -14,8 +14,8 @@ its own WhatsApp number, products, delivery areas, Cashfree account and orders. 
 | Role | Uses | Responsible for |
 |---|---|---|
 | **Customer** | WhatsApp, chatting with the client's business number | Placing orders, paying, sharing a delivery location |
-| **Vendor** (the client, e.g. NutriFarm) | Order commands today; the web dashboard in Phase 2 | Products, prices, delivery areas, assigning deliveries, marking delivered, cancellations and refunds |
-| **Delivery partner** | Nothing in C2V yet (no login) | Delivering the orders assigned to them |
+| **Vendor** (the client, e.g. NutriFarm) | The web dashboard (login from the C2V operator); order commands as a fallback | Products, prices, delivery areas, assigning deliveries, marking delivered, cancellations and refunds |
+| **Delivery partner** | A private link (no login) | Delivering the orders assigned to them, marking them out for delivery and delivered |
 | **C2V operator** (you) | Server, Meta, Cashfree, database | Onboarding clients, running the service, keeping it healthy |
 
 ---
@@ -69,9 +69,25 @@ payment_pending ──paid──▶ confirmed ──▶ assigned ──▶ out_f
 - **Refund** returns the full amount to the customer through Cashfree. If the order wasn't delivered yet,
   refunding also cancels it. A refund can be safely retried; it never refunds twice.
 - **Needs refund:** paid orders that were cancelled, or payments that arrived after the link had expired.
-  These need a refund decision (shown as a list in the Phase 2 dashboard).
+  These need a refund decision (shown as a list in the dashboard).
 
-### 3.2 Order commands (until the dashboard exists)
+### 3.2 Vendor login and partner links
+
+- **Login:** the C2V operator creates one username and password per client and hands them over. The password
+  is shown once and stored only as a hash. The vendor can change it from the dashboard (current password +
+  a new one of 10-128 characters); that signs out every other device. Sessions last 30 days.
+- **Lost password / ended access:** the operator runs
+  `ENV=prod pnpm vendors reset-password <username>` (new password, all sessions ended),
+  `... deactivate <username>` (can't log in, sessions ended) or `... activate <username>`.
+  A new login is made with `ENV=prod pnpm vendors create <tenantId> <username>`.
+- **Delivery partner link:** adding a partner (name + phone) generates a private link. The vendor shares it
+  with the partner. Opening it shows only that partner's assigned orders (no prices) with buttons
+  *Out for delivery* and *Delivered*. **Reset link** issues a new link and the old one stops working at
+  once; **deactivating** a partner also disables the link. Deactivating does not unassign their open
+  orders: reassign them.
+  Partners created before this feature need one "reset link" to get a link.
+
+### 3.3 Order commands (fallback)
 
 Run by the C2V operator on the vendor's behalf:
 
@@ -84,9 +100,9 @@ ENV=prod pnpm orders <client> <orderCode> refund
 ```
 Example: `ENV=prod pnpm orders nutrifarm NF-7K3QX9 assign 9398651343`.
 
-### 3.3 Catalogue and settings
+### 3.4 Catalogue and settings
 
-Until the dashboard exists, these are changed by the C2V operator in the database:
+Vendors manage these in the dashboard (the operator can still change them in the database):
 - **Products:** name, price, active/hidden, display order (up to 8 shown in the order form).
 - **Delivery areas:** pincode, delivery weekday, active.
 - **Delivery partners:** name, phone, active.
@@ -124,6 +140,6 @@ Unsigned or invalid requests are rejected. Duplicate deliveries from Meta or Cas
 
 ## 6. Not available yet
 
-Subscriptions (weekly AutoPay), the vendor web dashboard and login, cash on delivery, the out-for-delivery
+Subscriptions (weekly AutoPay), several staff logins per client, cash on delivery, the out-for-delivery
 message to customers, a message to customers when a refund is issued, and automatic refunds for late
 payments.
