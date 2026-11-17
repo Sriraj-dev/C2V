@@ -7,7 +7,7 @@ import { settingsRoutes } from './settings/routes.js';
 import { catalogRoutes } from './catalog/routes.js';
 import { partnerAdminRoutes } from './partners/routes.js';
 import { chatRoutes } from './chats/routes.js';
-import { ApiError, errorResponse, type AdminEnv } from './http.js';
+import { ApiError, errorResponse, REQUEST_TIMEOUT_MS, requestTimeout, type AdminEnv } from './http.js';
 
 /**
  * The vendor dashboard API, mounted at /admin. Later resource routers (orders, catalog, ...) are
@@ -16,6 +16,7 @@ import { ApiError, errorResponse, type AdminEnv } from './http.js';
 export function adminRoutes(deps: AppDeps): Hono<AdminEnv> {
   const app = new Hono<AdminEnv>();
   app.onError((err, c) => errorResponse(c, err, deps.log));
+  app.use('*', requestTimeout(REQUEST_TIMEOUT_MS));
   app.route('/', loginRoutes(deps));
   app.route('/', sessionAuthRoutes(deps));
   app.route('/', orderRoutes(deps));

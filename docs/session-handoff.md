@@ -50,7 +50,7 @@
 
 - Path `/Users/srirajdev/development/C2V_Product/C2V`, branch `feat/phase1-bot`, remote
   `github.com/Sriraj-dev/C2V`.
-- Node 22, TypeScript strict, Hono (@hono/node-server), drizzle-orm + postgres-js, Supabase Postgres
+- Node 22, TypeScript strict, Hono (@hono/node-server), drizzle-orm + node-postgres (`pg`) for the server (postgres-js pipelining hangs on the Supabase transaction pooler; one-off scripts still use postgres-js), Supabase Postgres
   (Mumbai) used as plain Postgres, vitest + pglite, pnpm 10.7.1.
 - Env: `.env.dev` (default) and `.env.prod`; every script loads `.env.${ENV:-dev}` →
   `ENV=prod pnpm <script>` targets production. Cloud Run reads Secret Manager, not files.

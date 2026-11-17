@@ -11,7 +11,7 @@ import { nutrifarm } from './tenants/nutrifarm/config.js';
 const env = loadEnv(process.env);
 const log = pino({ level: env.LOG_LEVEL });
 registerTenants([nutrifarm]);
-const { db, close: closeDb } = createDbHandle(env.DATABASE_URL);
+const { db, close: closeDb } = createDbHandle(env.DATABASE_URL, log);
 const app = buildApp({
   env,
   now: () => new Date(),

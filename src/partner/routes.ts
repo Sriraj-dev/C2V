@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { z } from 'zod';
 import { findPartnerByToken } from '../admin/partners/repo.js';
-import { ApiError, errorResponse } from '../admin/http.js';
+import { ApiError, errorResponse, REQUEST_TIMEOUT_MS, requestTimeout } from '../admin/http.js';
 import { orderPhone } from '../admin/orders/views.js';
 import type { Db } from '../db/client.js';
 import { customers, orderItems, orders, type Address, type DeliveryPartnerRow } from '../db/schema.js';
@@ -83,6 +83,7 @@ export function partnerRoutes(deps: AppDeps): Hono<PartnerEnv> {
     c.header('Cache-Control', 'no-store');
     await next();
   });
+  r.use('*', requestTimeout(REQUEST_TIMEOUT_MS));
 
   r.use('/:token/*', async (c, next) => {
     const token = c.req.param('token');

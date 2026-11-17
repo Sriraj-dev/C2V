@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { ApiError, errorResponse, pageParams, paged, parseBody, parseQuery } from '../../src/admin/http.js';
+import { ApiError, errorResponse, pageParams, paged, parseBody, parseQuery, requestTimeout } from '../../src/admin/http.js';
 import { WhatsAppSendError } from '../../src/channels/whatsapp/sender.js';
 import { InvalidTransitionError, NotSupportedError, OrderNotFoundError } from '../../src/orders/order-status.js';
 import { testDeps } from '../helpers/fakes.js';
@@ -37,6 +37,14 @@ describe('errorResponse', () => {
     [Object.assign(new Error('dup'), { code: '23505' }), 409, 'conflict'],
     [new Error('wrapped', { cause: { code: '23505' } }), 409, 'conflict'],
     [new ApiError(404, 'not_found', 'Nothing', [1]), 404, 'not_found'],
+    [Object.assign(new Error('statement timeout'), { code: '57014' }), 503, 'db_unavailable'],
+    [new Error('database query failed', { cause: { code: '57014' } }), 503, 'db_unavailable'],
+    [new Error('database query failed', { cause: { code: 'CONNECT_TIMEOUT' } }), 503, 'db_unavailable'],
+    [Object.assign(new Error('closed'), { code: 'CONNECTION_CLOSED' }), 503, 'db_unavailable'],
+    [new Error('x', { cause: { code: 'ECONNRESET' } }), 503, 'db_unavailable'],
+    [new Error('Failed query', { cause: new Error('timeout exceeded when trying to connect') }), 503, 'db_unavailable'],
+    [new Error('Connection terminated unexpectedly'), 503, 'db_unavailable'],
+    [new Error('Connection terminated due to connection timeout'), 503, 'db_unavailable'],
   ])('maps %# to %i %s', async (err, status, code) => {
     const res = await appThrowing(err).request('/boom');
     expect(res.status).toBe(status);
@@ -61,6 +69,31 @@ describe('errorResponse', () => {
     expect((await app.request('/q?pageSize=101')).status).toBe(400);
     expect((await app.request('/q?page=0')).status).toBe(400);
     expect(paged(['a'], 2, 25, 26)).toEqual({ items: ['a'], page: 2, pageSize: 25, total: 26 });
+  });
+});
+
+describe('requestTimeout', () => {
+  function slowApp(ms: number, work: number) {
+    const app = new Hono();
+    app.onError((e, c) => errorResponse(c, e, testDeps().log));
+    app.use('*', requestTimeout(ms));
+    app.get('/work', async (c) => {
+      await new Promise((r) => setTimeout(r, work));
+      return c.json({ ok: true });
+    });
+    return app;
+  }
+
+  it('returns 503 timeout when the handler runs past the limit', async () => {
+    const res = await slowApp(20, 200).request('/work');
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe('timeout');
+  });
+
+  it('passes fast responses through untouched', async () => {
+    const res = await slowApp(200, 1).request('/work');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
   });
 });
 
