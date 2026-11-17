@@ -81,25 +81,26 @@ async function seedOrder(
 const get = (path: string, headers: Record<string, string> = auth.headers) => t.app.request(path, { headers });
 
 describe('GET /admin/orders/active', () => {
-  it('returns only active statuses in delivery-date order with joined data', async () => {
+  it('returns only active statuses, newest first (not by delivery date), with joined data', async () => {
     const [partner] = await t.db
       .insert(deliveryPartners)
       .values({ tenantId: 'test', name: 'Ravi', phone: '919800000001' })
       .returning();
-    const late = await seedOrder('confirmed', { deliveryDate: '2026-11-20' });
-    const early = await seedOrder('assigned', {
-      deliveryDate: '2026-11-16',
+    const oldest = await seedOrder('confirmed', { deliveryDate: '2026-11-16', createdAt: new Date('2026-11-10T10:00:00Z') });
+    const newest = await seedOrder('assigned', {
+      deliveryDate: '2026-11-25',
       partnerId: partner!.id,
       location: { lat: 12.9, lng: 77.6 },
+      createdAt: new Date('2026-11-12T10:00:00Z'),
     });
-    const ofd = await seedOrder('out_for_delivery', { deliveryDate: '2026-11-18' });
+    const middle = await seedOrder('out_for_delivery', { deliveryDate: '2026-11-18', createdAt: new Date('2026-11-11T10:00:00Z') });
     await seedOrder('delivered');
     await seedOrder('payment_pending', { payment: 'created' });
     await seedOrder('confirmed', { tenantId: 'other' });
     const res = await get('/admin/orders/active');
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
-    expect(body.items.map((i: any) => i.id)).toEqual([early.id, ofd.id, late.id]);
+    expect(body.items.map((i: any) => i.id)).toEqual([newest.id, middle.id, oldest.id]);
     const first = body.items[0];
     expect(first.partner).toEqual({ id: partner!.id, name: 'Ravi', phone: '919800000001' });
     expect(first.paymentStatus).toBe('paid');

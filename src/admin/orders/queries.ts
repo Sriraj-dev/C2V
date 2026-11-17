@@ -24,7 +24,7 @@ export async function listActiveOrders(db: Db, tenantId: string): Promise<OrderV
     .select()
     .from(orders)
     .where(and(eq(orders.tenantId, tenantId), inArray(orders.status, ACTIVE_STATUSES)))
-    .orderBy(asc(orders.deliveryDate), asc(orders.createdAt), asc(orders.id));
+    .orderBy(desc(orders.createdAt), desc(orders.id));
   return toOrderViews(db, tenantId, rows);
 }
 

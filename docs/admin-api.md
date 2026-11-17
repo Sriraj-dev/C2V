@@ -182,7 +182,7 @@ ENV=prod pnpm vendors activate <username>
 
 | Method & path | Notes | Response |
 |---|---|---|
-| `GET /admin/orders/active` | All `confirmed`, `assigned`, `out_for_delivery` orders. **Not paged** (a small working set). Sorted by delivery date, then oldest first | `200 { items: OrderView[] }` |
+| `GET /admin/orders/active` | All `confirmed`, `assigned`, `out_for_delivery` orders. **Not paged** (a small working set). Newest first (by order creation time) | `200 { items: OrderView[] }` |
 | `GET /admin/orders` | Paged history, all statuses. Filters (all optional): `status` (comma list of `OrderStatus`, e.g. `confirmed,assigned`; unknown value is 400), `deliveryFrom`, `deliveryTo` (YYYY-MM-DD, inclusive), `pincode` (exactly 6 digits), `partnerId` (uuid), `q` (max 100 chars; partial match on order code, or on the customer's WhatsApp number or order-form phone when it has digits). Sorted newest first | `200 { items: OrderView[], page, pageSize, total }` |
 | `GET /admin/orders/:id` | | `200 { order: OrderView }` · 404 |
 | `GET /admin/refunds/needed` | Orders with a `paid` link payment whose status is `cancelled` (reason `cancelled_after_payment`) or `expired` (`paid_after_expiry`: paid after the link closed). Once refunded they drop off. Not paged, newest first | `200 { items: (OrderView & { refundReason: 'cancelled_after_payment' \| 'paid_after_expiry' })[] }` |
