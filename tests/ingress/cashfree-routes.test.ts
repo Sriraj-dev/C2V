@@ -209,8 +209,14 @@ describe('POST /webhooks/cashfree', () => {
       type: 'SUBSCRIPTION_STATUS_CHANGED',
       data: { subscription_details: { subscription_id: sub!.id, subscription_status: 'ACTIVE' } },
     });
+    pay.setSubscription(sub!.id, 'ACTIVE', 'ACTIVE');
+    const subStatus = async () => (await db.select().from(subscriptions).where(eq(subscriptions.id, sub!.id)))[0]!.status;
     expect((await post(body, { sig: 'bad' })).status).toBe(401);
+    expect(await subStatus()).toBe('pending_authorization');
+    // A valid event dispatches to the status handler, which re-fetches and activates.
     expect((await post(body)).status).toBe(200);
+    expect(await subStatus()).toBe('active');
+    expect(wa.sent).toHaveLength(1);
   });
 
   it('non-uuid subscription id -> 200 (unknown), no handler error', async () => {

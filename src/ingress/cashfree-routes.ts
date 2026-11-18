@@ -7,6 +7,7 @@ import type { AppDeps } from '../deps.js';
 import { confirmPaidOrder, expireUnpaidOrder } from '../orders/checkout.js';
 import { parseCashfreeEvent, verifyCashfreeSignature } from '../payments/cashfree/webhook.js';
 import { findPaymentByProviderRef } from '../payments/payment-repo.js';
+import { onSubscriptionStatus } from '../subscriptions/subscription-service.js';
 import { tenantById } from '../tenants/registry.js';
 
 export function cashfreeRoutes(deps: AppDeps): Hono {
@@ -68,8 +69,11 @@ export function cashfreeRoutes(deps: AppDeps): Hono {
           ? await expireUnpaidOrder(deps, tenant, event.linkId)
           : await confirmPaidOrder(deps, tenant, event.linkId);
         deps.log.info({ tenantId, type: event.type, linkStatus: event.linkStatus, result }, 'cashfree link event handled');
+      } else if (event.type === 'subscription_status') {
+        const result = await onSubscriptionStatus(deps, tenant, event.subscriptionId);
+        deps.log.info({ tenantId, type: event.type, result }, 'cashfree subscription status handled');
       } else {
-        // Subscription handlers are on hold (spec backlog §9 #15).
+        // Charge results are handled in a later step.
         deps.log.info({ tenantId, type: event.type }, 'cashfree subscription event received');
       }
     } catch (err) {
