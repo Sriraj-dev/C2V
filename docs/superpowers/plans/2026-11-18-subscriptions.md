@@ -9,7 +9,7 @@ is confirmed when the charge is collected the next day; the vendor sees and canc
 **Architecture:** A new `src/subscriptions/` module (create, activate, raise charges, charge results, skip, cancel)
 behind the existing `PaymentProvider` port, which gains Cashfree subscription methods. The bot gets a Subscribe Flow
 and a template quick-reply handler; the server gets `GET /subscribe/:token` (authorisation page) and
-`POST /jobs/subscription-charges` (hourly job). The admin API gains three subscription routes.
+`POST /jobs/subscription-charges` (daily job, 09:00 IST). The admin API gains three subscription routes.
 
 **Tech Stack:** existing: Node 22, TypeScript strict, Hono, drizzle-orm + node-postgres, zod 4, vitest + PGlite,
 pino. Cashfree Subscriptions API `2026-01-01` (`/pg/subscriptions…`), WhatsApp Cloud API templates and Flows.
@@ -27,7 +27,7 @@ pino. Cashfree Subscriptions API `2026-01-01` (`/pg/subscriptions…`), WhatsApp
 - Our `subscriptions.id` (uuid) is the Cashfree `subscription_id`; our `payments.id` (uuid) is the Cashfree `payment_id`
   and is stored in `payments.provider_ref`.
 - Never trust a Cashfree webhook body: re-fetch the subscription or payment before changing state. All handlers are
-  idempotent (webhooks repeat; the job runs hourly).
+  idempotent (webhooks repeat; the job can be re-run).
 - Template names/languages exactly: `subscription_upcoming_charge` (`en`, body params `[amount e.g. "258", date e.g. "Wed, 18 Nov"]`,
   quick-reply payload `skip:<paymentId>`), `subscription_charge_failed` (`en`, body param `[date]`).
 - Customer-facing text lives in `TenantCopy` (`src/tenants/types.ts` + `src/tenants/nutrifarm/copy.ts`).
@@ -35,15 +35,15 @@ pino. Cashfree Subscriptions API `2026-01-01` (`/pg/subscriptions…`), WhatsApp
   contract is updated in the same commit and re-copied to the dashboard repo (local, uncommitted there).
 - No secrets in commits; run `bash .superpowers/secret-check.sh` before each commit. Never stage `CLIENT_CHECKLIST.md` / `LEARNING.md`.
 
-## Open for discussion
+## Decided after planning
 
-- **Charge job timing (raised 2026-11-18):** the user prefers one run per day over hourly. To settle before Task 6:
-  run time, in-run retries (2–3) on Cashfree errors, and how a mandate approved after that day's run gets its first
-  charge (e.g. raise it at activation). A cycle that fails on D-2 can still be raised on D-1 for D.
+- **Charge job timing (agreed 2026-11-18):** one run a day at 09:00 IST instead of hourly; up to 3 attempts per Cashfree
+  call (5 s, 30 s); a failed cycle is retried by the next day's run (D-1 → charge for D); a mandate activated after the
+  run with its first delivery already due is charged at activation. Spec §10 "Charging" updated.
 
 ## Review Focus
 
-1. Duplicate effects from repeated webhooks or overlapping hourly runs: two orders for one cycle, two upcoming
+1. Duplicate effects from repeated webhooks or overlapping or repeated job runs: two orders for one cycle, two upcoming
    messages, two failure templates. Every handler must be idempotent; tests send each webhook twice.
 2. Skip racing the collection: a tap after Cashfree has already debited (webhook not yet arrived) must not cancel
    the order. Skip trusts only Cashfree's cancel result and re-fetch; already collected → order confirmed + "already paid, contact us".
@@ -223,7 +223,7 @@ Each item has a test in the owning task (T4/T5/T6/T7).
     create the order (`createOrder` with `status: 'payment_pending'`, `source: 'subscription'`, `subscriptionId`, delivery date D,
     address/location from the subscription) and the payment (`order_id` = that order; unique violation on (`subscription_id`,
     `for_delivery_date`) → already raised, roll back, skip silently); `raiseCharge`; on provider error delete that payment and
-    order and leave the date unchanged (next hourly run retries); then advance `next_delivery_date` and send
+    order and leave the date unchanged (next day's run retries); raise retried up to 3 times in-run; then advance `next_delivery_date` and send
     `templateMsg('subscription_upcoming_charge', 'en', [rupees, formatDeliveryDate(D)], { quickReplyPayloads: ['skip:<paymentId>'] })`.
     A template send failure is logged, not thrown.
   - `POST /jobs/subscription-charges` — header `x-jobs-secret` must equal `env.JOBS_SECRET` (missing env or mismatch → 401);
@@ -236,7 +236,7 @@ Each item has a test in the owning task (T4/T5/T6/T7).
   no charge; biweekly advances 14, monthly 28 (incl. year rollover); product repriced → new price; product deactivated → line dropped; all
   dropped → skipped, no ₹0 charge and no order; Cashfree status CUSTOMER_PAUSED → skipped; raise fails → no payment or order left, date unchanged; the upcoming order is absent from `/admin/orders/active`; job route 401 without/with wrong secret.
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit** `feat(subscriptions): hourly charge job, upcoming order and message`
+- [ ] **Step 5: Commit** `feat(subscriptions): daily charge job, upcoming order and message`
 
 ---
 
@@ -331,7 +331,7 @@ Each item has a test in the owning task (T4/T5/T6/T7).
 
 **Interfaces:**
 - Produces: docs only — Cashfree dashboard webhook (subscription events, 2026-01-01) for sandbox and production; Cloud Scheduler job
-  `POST /jobs/subscription-charges` hourly 08:00–20:00 IST with `x-jobs-secret`; templates on the real number; Subscribe Flow publishing;
+  `POST /jobs/subscription-charges` daily at 09:00 IST with `x-jobs-secret`; templates on the real number; Subscribe Flow publishing;
   user-guide pages for subscribing, skipping and cancelling; dashboard brief for the subscriptions screens.
 
 - [ ] **Step 1: Live run (sandbox + test number, with the user)** — subscribe from WhatsApp via the draft Flow, approve the mandate on the sandbox

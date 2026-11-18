@@ -56,6 +56,7 @@ const texts = () => wa.sent.map((m) => (m.message as any).text?.body as string);
 
 describe('onSubscriptionStatus', () => {
   it('ACTIVE twice activates once, sets the first delivery and sends one message', async () => {
+    now = new Date('2026-11-15T04:30:00Z'); // Sun 10:00 IST: Wed 18 is not yet due for charging
     const { s } = await seedSub('pending_authorization');
     pay.setSubscription(s.id, 'ACTIVE', 'ACTIVE');
     expect(await onSubscriptionStatus(deps, tenant, s.id)).toBe('activated');

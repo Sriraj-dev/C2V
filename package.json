@@ -24,7 +24,8 @@
     "samples:send": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/send-samples.ts",
     "orders": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/orders.ts",
     "vendors": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/vendors.ts",
-    "templates:create": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/templates.ts"
+    "templates:create": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/templates.ts",
+    "jobs:run": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/run-jobs.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.8",

@@ -8,7 +8,7 @@ const schema = z.object({
   META_VERIFY_TOKEN: z.string().min(1),
   GRAPH_API_VERSION: z.string().min(1),
   CASHFREE_ENV: z.enum(['sandbox', 'production']),
-  /** Reserved for the subscriptions daily job (on hold). */
+  /** Shared secret for POST /jobs/* (Cloud Scheduler sends it as x-jobs-secret); unset → jobs refuse. */
   JOBS_SECRET: z.string().min(1).optional(),
   /** Public https origin of this server (Cashfree webhook callbacks); trailing slash is stripped where used. */
   PUBLIC_BASE_URL: z.string().url(),

@@ -82,3 +82,8 @@ export function frequencyLabel(f: Frequency, weekday: number): string {
       return `every 4 weeks on ${day}`;
   }
 }
+
+/** `now`'s IST calendar day as YYYY-MM-DD. */
+export function istToday(now: Date): string {
+  return new Date(now.getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
+}

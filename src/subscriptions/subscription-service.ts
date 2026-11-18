@@ -8,6 +8,7 @@ import { customers, orders, payments, subscriptionItems, subscriptions, type Geo
 import type { AppDeps } from '../deps.js';
 import { firstSubscriptionDelivery, formatDeliveryDate, frequencyLabel, type Frequency } from '../domain/delivery-date.js';
 import type { OrderLine } from '../orders/order-service.js';
+import { raiseNextCharge } from './charges.js';
 import { getTenantSettings } from '../tenants/settings-repo.js';
 import type { TenantConfig } from '../tenants/types.js';
 
@@ -134,6 +135,12 @@ export async function onSubscriptionStatus(
       firstDelivery: formatDeliveryDate(nextDelivery),
       frequency: frequencyLabel(sub.frequency, sub.deliveryWeekday),
     }));
+    // Approved after the day's charge run with the first delivery already due: charge it now.
+    try {
+      await raiseNextCharge(deps, tenant, row);
+    } catch (err) {
+      deps.log.error({ tenantId: tenant.id, subscriptionId, err: errInfo(err) }, 'first charge at activation failed; daily run retries');
+    }
     return 'activated';
   }
 
