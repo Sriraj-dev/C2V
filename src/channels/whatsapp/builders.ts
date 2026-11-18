@@ -133,6 +133,8 @@ export function flowMsg(args: {
   cta: string;
   screen: string;
   data: Record<string, unknown>;
+  /** 'draft' sends an unpublished Flow (testing only; works for the WABA's own testers). */
+  mode?: 'draft';
 }): OutboundMessage {
   nonEmpty('flow cta', args.cta);
   max('flow cta', args.cta, LIMITS.flowCta);
@@ -150,6 +152,7 @@ export function flowMsg(args: {
           flow_cta: args.cta,
           flow_action: 'navigate',
           flow_action_payload: { screen: args.screen, data: args.data },
+          ...(args.mode ? { mode: args.mode } : {}),
         },
       },
     },

@@ -19,11 +19,31 @@ const PREFILL_EXAMPLES: Record<(typeof PREFILL_KEYS)[number], string> = {
 };
 const QTY_OPTIONS = Array.from({ length: 11 }, (_, i) => ({ id: String(i), title: String(i) }));
 
+export const SUBSCRIPTION_FREQUENCIES = [
+  { id: 'weekly', title: 'Every week' },
+  { id: 'biweekly', title: 'Every 2 weeks' },
+  { id: 'monthly', title: 'Every 4 weeks' },
+] as const;
+
 /** Flow JSON is product-independent: labels/visibility arrive in the message's flow_action_payload.data. */
 export function buildOrderFlowJson(): Record<string, unknown> {
+  return buildFlowJson('order');
+}
+
+/**
+ * Subscribe Flow: PRODUCTS (the order Flow's product screen) → FREQUENCY (required choice) → DETAILS
+ * (address fields and a required email; Cashfree needs it for the mandate).
+ */
+export function buildSubscribeFlowJson(): Record<string, unknown> {
+  return buildFlowJson('subscribe');
+}
+
+function buildFlowJson(kind: 'order' | 'subscribe'): Record<string, unknown> {
+  const sub = kind === 'subscribe';
   const prefillData = Object.fromEntries(
     PREFILL_KEYS.map((k) => [`prefill_${k}`, { type: 'string', __example__: PREFILL_EXAMPLES[k] }]),
   );
+  const emailData = sub ? { prefill_email: { type: 'string', __example__: 'name@example.com' } } : {};
   // BSUID-only customers have no phone on file; the Flow asks them for one (Cashfree links need it).
   const askPhoneData = { ask_phone: { type: 'boolean', __example__: false } };
   const qtyData = Object.fromEntries(slots.map((i) => [`qty_${i}`, { type: 'string', __example__: '0' }]));
@@ -39,12 +59,13 @@ export function buildOrderFlowJson(): Record<string, unknown> {
         ]),
       ),
       ...prefillData,
+      ...emailData,
       ...askPhoneData,
     },
     layout: {
       type: 'SingleColumnLayout',
       children: [
-        { type: 'TextBody', text: 'Pick how many packs of each you want.' },
+        { type: 'TextBody', text: sub ? 'Pick how many packs you want in each delivery.' : 'Pick how many packs of each you want.' },
         // Meta caps the Dropdown label at 20 characters, so the full product label ("name — price")
         // is shown in a TextBody and the Dropdown gets a short static label.
         ...slots.flatMap((i) => [
@@ -64,10 +85,11 @@ export function buildOrderFlowJson(): Record<string, unknown> {
           label: 'Next',
           'on-click-action': {
             name: 'navigate',
-            next: { type: 'screen', name: 'ADDRESS' },
+            next: { type: 'screen', name: sub ? 'FREQUENCY' : 'ADDRESS' },
             payload: {
               ...Object.fromEntries(slots.map((i) => [`qty_${i}`, `\${form.qty_${i}}`])),
               ...Object.fromEntries(PREFILL_KEYS.map((k) => [`prefill_${k}`, `\${data.prefill_${k}}`])),
+              ...(sub ? { prefill_email: '${data.prefill_email}' } : {}),
               ask_phone: '${data.ask_phone}',
             },
           },
@@ -76,11 +98,53 @@ export function buildOrderFlowJson(): Record<string, unknown> {
     },
   };
 
+  // Subscribe only: page 2 asks how often; everything from page 1 is carried through to DETAILS.
+  const frequencyScreen = {
+    id: 'FREQUENCY',
+    title: 'How often?',
+    data: { ...qtyData, ...prefillData, ...emailData, ...askPhoneData },
+    layout: {
+      type: 'SingleColumnLayout',
+      children: [
+        { type: 'TextBody', text: 'How often should we deliver? We message you 2 days before each delivery, and you can skip any one.' },
+        {
+          type: 'RadioButtonsGroup',
+          name: 'frequency',
+          label: 'Delivery frequency',
+          required: true,
+          'init-value': 'weekly',
+          'data-source': SUBSCRIPTION_FREQUENCIES.map((f) => ({ ...f })),
+        },
+        {
+          type: 'Footer',
+          label: 'Next',
+          'on-click-action': {
+            name: 'navigate',
+            next: { type: 'screen', name: 'DETAILS' },
+            payload: {
+              ...Object.fromEntries(slots.map((i) => [`qty_${i}`, `\${data.qty_${i}}`])),
+              ...Object.fromEntries(PREFILL_KEYS.map((k) => [`prefill_${k}`, `\${data.prefill_${k}}`])),
+              prefill_email: '${data.prefill_email}',
+              ask_phone: '${data.ask_phone}',
+              frequency: '${form.frequency}',
+            },
+          },
+        },
+      ],
+    },
+  };
+
   const addressScreen = {
-    id: 'ADDRESS',
+    id: sub ? 'DETAILS' : 'ADDRESS',
     title: 'Delivery address',
     terminal: true,
-    data: { ...qtyData, ...prefillData, ...askPhoneData },
+    data: {
+      ...qtyData,
+      ...prefillData,
+      ...emailData,
+      ...askPhoneData,
+      ...(sub ? { frequency: { type: 'string', __example__: 'weekly' } } : {}),
+    },
     layout: {
       type: 'SingleColumnLayout',
       children: [
@@ -126,6 +190,19 @@ export function buildOrderFlowJson(): Record<string, unknown> {
           'init-value': '${data.prefill_phone}',
           visible: '${data.ask_phone}',
         },
+        ...(sub
+          ? [
+              {
+                type: 'TextInput',
+                name: 'email',
+                label: 'Email',
+                'input-type': 'email',
+                'helper-text': 'For your AutoPay mandate receipts',
+                required: true,
+                'init-value': '${data.prefill_email}',
+              },
+            ]
+          : []),
         {
           type: 'Footer',
           label: 'Continue',
@@ -139,6 +216,7 @@ export function buildOrderFlowJson(): Record<string, unknown> {
               landmark: '${form.landmark}',
               pincode: '${form.pincode}',
               phone: '${form.phone}',
+              ...(sub ? { frequency: '${data.frequency}', email: '${form.email}' } : {}),
             },
           },
         },
@@ -146,7 +224,7 @@ export function buildOrderFlowJson(): Record<string, unknown> {
     },
   };
 
-  return { version: FLOW_JSON_VERSION, screens: [productsScreen, addressScreen] };
+  return { version: FLOW_JSON_VERSION, screens: sub ? [productsScreen, frequencyScreen, addressScreen] : [productsScreen, addressScreen] };
 }
 
 /** Product k (by sort order) goes to slot k+1; slotMap records slot -> productId for the submit handler. */
@@ -181,13 +259,30 @@ export function orderFlowData(
 }
 
 export function encodeOrderFlowToken(customerId: string, slotMap: Record<string, string>): string {
-  return `order:${customerId}:${Buffer.from(JSON.stringify(slotMap), 'utf8').toString('base64url')}`;
+  return encodeFlowToken('order', customerId, slotMap);
 }
 
-export function decodeOrderFlowToken(
+export function decodeOrderFlowToken(token: string): { customerId: string; slotMap: Record<string, string> } | null {
+  return decodeFlowToken('order', token);
+}
+
+export function encodeSubscribeFlowToken(customerId: string, slotMap: Record<string, string>): string {
+  return encodeFlowToken('subscribe', customerId, slotMap);
+}
+
+export function decodeSubscribeFlowToken(token: string): { customerId: string; slotMap: Record<string, string> } | null {
+  return decodeFlowToken('subscribe', token);
+}
+
+function encodeFlowToken(prefix: 'order' | 'subscribe', customerId: string, slotMap: Record<string, string>): string {
+  return `${prefix}:${customerId}:${Buffer.from(JSON.stringify(slotMap), 'utf8').toString('base64url')}`;
+}
+
+function decodeFlowToken(
+  prefix: 'order' | 'subscribe',
   token: string,
 ): { customerId: string; slotMap: Record<string, string> } | null {
-  const m = /^order:([^:]+):([A-Za-z0-9_-]*)$/.exec(token);
+  const m = new RegExp(`^${prefix}:([^:]+):([A-Za-z0-9_-]*)$`).exec(token);
   if (!m) return null;
   try {
     const parsed: unknown = JSON.parse(Buffer.from(m[2]!, 'base64url').toString('utf8'));
