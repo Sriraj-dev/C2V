@@ -18,6 +18,7 @@
     "db:seed": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/seed.ts",
     "flows:publish": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/publish-flows.ts",
     "cashfree:check": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/cashfree-link-check.ts",
+    "cashfree:subs-check": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/cashfree-subs-check.ts",
     "checkout:test": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/checkout-check.ts",
     "db:schedule-cleanup": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/schedule-cleanup.ts",
     "samples:send": "tsx --env-file-if-exists=.env.${ENV:-dev} scripts/send-samples.ts",

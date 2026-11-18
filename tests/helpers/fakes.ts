@@ -3,7 +3,7 @@ import type { OutboundMessage } from '../../src/channels/whatsapp/builders.js';
 import type { WhatsAppSender } from '../../src/channels/whatsapp/sender.js';
 import type { Db } from '../../src/db/client.js';
 import type { AppDeps } from '../../src/deps.js';
-import type { CreatePaymentLinkInput, LinkStatus, PaymentProvider } from '../../src/payments/provider.js';
+import type { CreatePaymentLinkInput, CreateSubscriptionInput, LinkStatus, PaymentProvider } from '../../src/payments/provider.js';
 import type { TenantConfig } from '../../src/tenants/types.js';
 
 export class FakeWhatsAppSender implements WhatsAppSender {
@@ -59,7 +59,13 @@ export type FakePaymentCall =
   | { method: 'createPaymentLink'; input: CreatePaymentLinkInput }
   | { method: 'getPaymentLink'; linkId: string }
   | { method: 'cancelPaymentLink'; linkId: string }
-  | { method: 'refundPaymentLink'; linkId: string; amountPaise: number; refundId: string };
+  | { method: 'refundPaymentLink'; linkId: string; amountPaise: number; refundId: string }
+  | { method: 'createSubscription'; input: CreateSubscriptionInput }
+  | { method: 'getSubscription'; subscriptionId: string }
+  | { method: 'raiseCharge'; input: { subscriptionId: string; paymentId: string; amountPaise: number; scheduleDate: string } }
+  | { method: 'getCharge'; subscriptionId: string; paymentId: string }
+  | { method: 'cancelCharge'; subscriptionId: string; paymentId: string }
+  | { method: 'cancelSubscription'; subscriptionId: string };
 
 export class FakePaymentProvider implements PaymentProvider {
   calls: FakePaymentCall[] = [];
@@ -102,5 +108,55 @@ export class FakePaymentProvider implements PaymentProvider {
   async refundPaymentLink(_t: TenantConfig, linkId: string, amountPaise: number, refundId: string): Promise<void> {
     this.calls.push({ method: 'refundPaymentLink', linkId, amountPaise, refundId });
     this.maybeFail();
+  }
+
+  /** Cashfree subscription state by subscription id; unset → INITIALIZED. */
+  subscriptions = new Map<string, { status: string; authorizationStatus: string | null }>();
+  /** Cashfree charge status by payment id; raised charges start INITIALIZED. */
+  charges = new Map<string, string>();
+  /** When set, cancelCharge rejects with this error (Cashfree refused) and leaves the charge as is. */
+  refuseCancelCharge: Error | undefined;
+
+  setSubscription(subscriptionId: string, status: string, authorizationStatus: string | null = null): void {
+    this.subscriptions.set(subscriptionId, { status, authorizationStatus });
+  }
+
+  async createSubscription(_t: TenantConfig, input: CreateSubscriptionInput): Promise<{ cfSubscriptionId: string; sessionId: string }> {
+    this.calls.push({ method: 'createSubscription', input });
+    this.maybeFail();
+    if (!this.subscriptions.has(input.subscriptionId)) this.setSubscription(input.subscriptionId, 'INITIALIZED');
+    return { cfSubscriptionId: `cf-${input.subscriptionId}`, sessionId: `sess-${input.subscriptionId}` };
+  }
+
+  async getSubscription(_t: TenantConfig, subscriptionId: string): Promise<{ status: string; authorizationStatus: string | null }> {
+    this.calls.push({ method: 'getSubscription', subscriptionId });
+    this.maybeFail();
+    return this.subscriptions.get(subscriptionId) ?? { status: 'INITIALIZED', authorizationStatus: null };
+  }
+
+  async raiseCharge(_t: TenantConfig, input: { subscriptionId: string; paymentId: string; amountPaise: number; scheduleDate: string }): Promise<void> {
+    this.calls.push({ method: 'raiseCharge', input });
+    this.maybeFail();
+    if (!this.charges.has(input.paymentId)) this.charges.set(input.paymentId, 'INITIALIZED');
+  }
+
+  async getCharge(_t: TenantConfig, subscriptionId: string, paymentId: string): Promise<{ status: string }> {
+    this.calls.push({ method: 'getCharge', subscriptionId, paymentId });
+    this.maybeFail();
+    return { status: this.charges.get(paymentId) ?? 'INITIALIZED' };
+  }
+
+  async cancelCharge(_t: TenantConfig, subscriptionId: string, paymentId: string): Promise<void> {
+    this.calls.push({ method: 'cancelCharge', subscriptionId, paymentId });
+    this.maybeFail();
+    if (this.refuseCancelCharge) throw this.refuseCancelCharge;
+    this.charges.set(paymentId, 'CANCELLED');
+  }
+
+  async cancelSubscription(_t: TenantConfig, subscriptionId: string): Promise<void> {
+    this.calls.push({ method: 'cancelSubscription', subscriptionId });
+    this.maybeFail();
+    const cur = this.subscriptions.get(subscriptionId);
+    this.setSubscription(subscriptionId, 'CANCELLED', cur?.authorizationStatus ?? null);
   }
 }

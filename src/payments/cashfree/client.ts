@@ -1,6 +1,12 @@
 import type { Env } from '../../config/env.js';
 import type { TenantConfig } from '../../tenants/types.js';
-import { ProviderError, type CreatePaymentLinkInput, type LinkStatus, type PaymentProvider } from '../provider.js';
+import {
+  ProviderError,
+  type CreatePaymentLinkInput,
+  type CreateSubscriptionInput,
+  type LinkStatus,
+  type PaymentProvider,
+} from '../provider.js';
 
 const API_VERSION = '2026-01-01';
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -10,6 +16,14 @@ const BASE_URLS = {
 } as const;
 const LINK_STATUSES: readonly string[] = ['ACTIVE', 'PAID', 'EXPIRED', 'CANCELLED', 'PARTIALLY_PAID'];
 const IST_OFFSET_MS = 330 * 60_000;
+/** Plan name shown on the customer's UPI mandate (Cashfree max 40 chars). */
+const SUBSCRIPTION_PLAN_NAME = 'Egg subscription';
+/** UPI minimum authorisation amount (₹1), refunded after approval. */
+const AUTH_AMOUNT_RUPEES = 1;
+/** Hour (IST) used for the scheduled charge date; Cashfree only uses the date part. */
+const CHARGE_SCHEDULE_TIME = 'T10:00:00+05:30';
+/** Subscription states in which no further charge can happen. */
+const ENDED_SUBSCRIPTION_STATUSES: readonly string[] = ['CANCELLED', 'CUSTOMER_CANCELLED', 'EXPIRED', 'COMPLETED', 'LINK_EXPIRED', 'CARD_EXPIRED'];
 
 /** Error from Cashfree or from reaching it. Messages never contain credentials or customer details. */
 export class CashfreeError extends ProviderError {
@@ -137,6 +151,101 @@ export class CashfreeProvider implements PaymentProvider {
       refund_amount: refundAmount,
       refund_id: refundId,
     });
+  }
+
+  async createSubscription(t: TenantConfig, i: CreateSubscriptionInput): Promise<{ cfSubscriptionId: string; sessionId: string }> {
+    const customer_details: Record<string, string> = {
+      customer_email: i.customer.email,
+      customer_phone: normalizeIndianPhone(i.customer.phone),
+    };
+    const name = i.customer.name.trim().slice(0, 100).trim();
+    if (name) customer_details.customer_name = name;
+    const body = {
+      subscription_id: i.subscriptionId,
+      customer_details,
+      plan_details: { plan_name: SUBSCRIPTION_PLAN_NAME, plan_type: 'ON_DEMAND', plan_max_amount: paiseToRupees(i.maxAmountPaise), plan_currency: 'INR' },
+      authorization_details: { authorization_amount: AUTH_AMOUNT_RUPEES, authorization_amount_refund: true, payment_methods: ['upi'] },
+      subscription_meta: { return_url: i.returnUrl },
+      subscription_expiry_time: toIstIso(i.expiresAt),
+    };
+    let res;
+    try {
+      res = await this.call(t, 'POST', '/subscriptions', body, { 'x-idempotency-key': `sub:${i.subscriptionId}` });
+    } catch (e) {
+      if (!(e instanceof CashfreeError && e.status === 409)) throw e;
+      // Created earlier (response lost): reuse it only while it still awaits authorisation.
+      res = await this.call(t, 'GET', `/subscriptions/${encodeURIComponent(i.subscriptionId)}`);
+      if (res.subscription_status !== 'INITIALIZED') throw e;
+    }
+    const sessionId = typeof res.subscription_session_id === 'string' ? res.subscription_session_id : '';
+    const cfId = res.cf_subscription_id;
+    if (!sessionId || (typeof cfId !== 'string' && typeof cfId !== 'number')) {
+      throw new CashfreeError('Cashfree response missing subscription_session_id or cf_subscription_id', 0, 'bad_response');
+    }
+    return { cfSubscriptionId: String(cfId), sessionId };
+  }
+
+  async getSubscription(t: TenantConfig, subscriptionId: string): Promise<{ status: string; authorizationStatus: string | null }> {
+    const res = await this.call(t, 'GET', `/subscriptions/${encodeURIComponent(subscriptionId)}`);
+    if (typeof res.subscription_status !== 'string') throw new CashfreeError('Cashfree returned no subscription_status', 0, 'bad_response');
+    // The response spells it "authorisation_details"; requests and webhooks use "authorization_details".
+    const auth = isRecord(res.authorisation_details) ? res.authorisation_details : isRecord(res.authorization_details) ? res.authorization_details : {};
+    return {
+      status: res.subscription_status,
+      authorizationStatus: typeof auth.authorization_status === 'string' ? auth.authorization_status : null,
+    };
+  }
+
+  async raiseCharge(t: TenantConfig, i: { subscriptionId: string; paymentId: string; amountPaise: number; scheduleDate: string }): Promise<void> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(i.scheduleDate)) throw new CashfreeError('scheduleDate must be YYYY-MM-DD', 0, 'invalid_schedule_date');
+    const body = {
+      subscription_id: i.subscriptionId,
+      payment_id: i.paymentId,
+      payment_type: 'CHARGE',
+      payment_amount: paiseToRupees(i.amountPaise),
+      payment_schedule_date: `${i.scheduleDate}${CHARGE_SCHEDULE_TIME}`,
+      payment_remarks: 'Egg delivery',
+    };
+    try {
+      await this.call(t, 'POST', '/subscriptions/pay', body, { 'x-idempotency-key': `charge:${i.paymentId}` });
+    } catch (e) {
+      if (!(e instanceof CashfreeError && e.status === 409)) throw e;
+      // Raised earlier (response lost): fine as long as Cashfree has the charge.
+      await this.getCharge(t, i.subscriptionId, i.paymentId);
+    }
+  }
+
+  async getCharge(t: TenantConfig, subscriptionId: string, paymentId: string): Promise<{ status: string }> {
+    const res = await this.call(t, 'GET', `/subscriptions/${encodeURIComponent(subscriptionId)}/payments/${encodeURIComponent(paymentId)}`);
+    if (typeof res.payment_status !== 'string') throw new CashfreeError('Cashfree returned no payment_status', 0, 'bad_response');
+    return { status: res.payment_status };
+  }
+
+  /** Idempotent: a charge that is already CANCELLED counts as success; any other refusal throws. */
+  async cancelCharge(t: TenantConfig, subscriptionId: string, paymentId: string): Promise<void> {
+    try {
+      await this.call(t, 'POST', `/subscriptions/${encodeURIComponent(subscriptionId)}/payments/${encodeURIComponent(paymentId)}/manage`, {
+        subscription_id: subscriptionId,
+        payment_id: paymentId,
+        action: 'CANCEL',
+      });
+    } catch (e) {
+      if (!(e instanceof CashfreeError && e.code === 'payment_status_invalid_for_action')) throw e;
+      if ((await this.getCharge(t, subscriptionId, paymentId)).status !== 'CANCELLED') throw e;
+    }
+  }
+
+  /** Idempotent: a subscription already in a terminal state counts as success. */
+  async cancelSubscription(t: TenantConfig, subscriptionId: string): Promise<void> {
+    try {
+      await this.call(t, 'POST', `/subscriptions/${encodeURIComponent(subscriptionId)}/manage`, {
+        subscription_id: subscriptionId,
+        action: 'CANCEL',
+      });
+    } catch (e) {
+      if (!(e instanceof CashfreeError && e.code === 'subscription_status_invalid_for_action')) throw e;
+      if (!ENDED_SUBSCRIPTION_STATUSES.includes((await this.getSubscription(t, subscriptionId)).status)) throw e;
+    }
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
