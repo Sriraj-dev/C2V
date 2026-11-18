@@ -6,6 +6,7 @@ import {
   type CreateSubscriptionInput,
   type LinkStatus,
   type PaymentProvider,
+  type SubscriptionState,
 } from '../provider.js';
 
 const API_VERSION = '2026-01-01';
@@ -185,7 +186,7 @@ export class CashfreeProvider implements PaymentProvider {
     return { cfSubscriptionId: String(cfId), sessionId };
   }
 
-  async getSubscription(t: TenantConfig, subscriptionId: string): Promise<{ status: string; authorizationStatus: string | null }> {
+  async getSubscription(t: TenantConfig, subscriptionId: string): Promise<SubscriptionState> {
     const res = await this.call(t, 'GET', `/subscriptions/${encodeURIComponent(subscriptionId)}`);
     if (typeof res.subscription_status !== 'string') throw new CashfreeError('Cashfree returned no subscription_status', 0, 'bad_response');
     // The response spells it "authorisation_details"; requests and webhooks use "authorization_details".
@@ -193,6 +194,7 @@ export class CashfreeProvider implements PaymentProvider {
     return {
       status: res.subscription_status,
       authorizationStatus: typeof auth.authorization_status === 'string' ? auth.authorization_status : null,
+      sessionId: typeof res.subscription_session_id === 'string' && res.subscription_session_id ? res.subscription_session_id : null,
     };
   }
 

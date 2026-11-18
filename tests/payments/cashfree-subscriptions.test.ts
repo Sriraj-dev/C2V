@@ -89,9 +89,9 @@ describe('createSubscription', () => {
 describe('getSubscription', () => {
   it('returns subscription and authorisation status', async () => {
     const { calls, provider } = mockFetch(
-      json({ subscription_status: 'ACTIVE', authorisation_details: { authorization_status: 'ACTIVE' } }),
+      json({ subscription_status: 'ACTIVE', authorization_details: { authorization_status: 'ACTIVE' }, subscription_session_id: 'sess_9' }),
     );
-    expect(await provider.getSubscription(tenant, SUB)).toEqual({ status: 'ACTIVE', authorizationStatus: 'ACTIVE' });
+    expect(await provider.getSubscription(tenant, SUB)).toEqual({ status: 'ACTIVE', authorizationStatus: 'ACTIVE', sessionId: 'sess_9' });
     expect(calls[0]).toMatchObject({ method: 'GET', url: `${SB}/subscriptions/${SUB}` });
   });
   it('unknown shape → bad_response', async () => {

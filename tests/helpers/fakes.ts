@@ -3,7 +3,13 @@ import type { OutboundMessage } from '../../src/channels/whatsapp/builders.js';
 import type { WhatsAppSender } from '../../src/channels/whatsapp/sender.js';
 import type { Db } from '../../src/db/client.js';
 import type { AppDeps } from '../../src/deps.js';
-import type { CreatePaymentLinkInput, CreateSubscriptionInput, LinkStatus, PaymentProvider } from '../../src/payments/provider.js';
+import type {
+  CreatePaymentLinkInput,
+  CreateSubscriptionInput,
+  LinkStatus,
+  PaymentProvider,
+  SubscriptionState,
+} from '../../src/payments/provider.js';
 import type { TenantConfig } from '../../src/tenants/types.js';
 
 export class FakeWhatsAppSender implements WhatsAppSender {
@@ -111,14 +117,18 @@ export class FakePaymentProvider implements PaymentProvider {
   }
 
   /** Cashfree subscription state by subscription id; unset → INITIALIZED. */
-  subscriptions = new Map<string, { status: string; authorizationStatus: string | null }>();
+  subscriptions = new Map<string, SubscriptionState>();
   /** Cashfree charge status by payment id; raised charges start INITIALIZED. */
   charges = new Map<string, string>();
   /** When set, cancelCharge rejects with this error (Cashfree refused) and leaves the charge as is. */
   refuseCancelCharge: Error | undefined;
 
   setSubscription(subscriptionId: string, status: string, authorizationStatus: string | null = null): void {
-    this.subscriptions.set(subscriptionId, { status, authorizationStatus });
+    this.subscriptions.set(subscriptionId, {
+      status,
+      authorizationStatus,
+      sessionId: status === 'INITIALIZED' ? `fresh-sess-${subscriptionId}` : null,
+    });
   }
 
   async createSubscription(_t: TenantConfig, input: CreateSubscriptionInput): Promise<{ cfSubscriptionId: string; sessionId: string }> {
@@ -128,10 +138,10 @@ export class FakePaymentProvider implements PaymentProvider {
     return { cfSubscriptionId: `cf-${input.subscriptionId}`, sessionId: `sess-${input.subscriptionId}` };
   }
 
-  async getSubscription(_t: TenantConfig, subscriptionId: string): Promise<{ status: string; authorizationStatus: string | null }> {
+  async getSubscription(_t: TenantConfig, subscriptionId: string): Promise<SubscriptionState> {
     this.calls.push({ method: 'getSubscription', subscriptionId });
     this.maybeFail();
-    return this.subscriptions.get(subscriptionId) ?? { status: 'INITIALIZED', authorizationStatus: null };
+    return this.subscriptions.get(subscriptionId) ?? { status: 'INITIALIZED', authorizationStatus: null, sessionId: `fresh-sess-${subscriptionId}` };
   }
 
   async raiseCharge(_t: TenantConfig, input: { subscriptionId: string; paymentId: string; amountPaise: number; scheduleDate: string }): Promise<void> {

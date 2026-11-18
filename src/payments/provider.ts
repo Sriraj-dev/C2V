@@ -22,8 +22,11 @@ export interface PaymentProvider {
 
   // Subscriptions (ON_DEMAND UPI AutoPay). Our subscription uuid is Cashfree's subscription_id; our payment uuid is its payment_id.
   createSubscription(t: TenantConfig, i: CreateSubscriptionInput): Promise<{ cfSubscriptionId: string; sessionId: string }>;
-  /** Cashfree statuses passed through, e.g. INITIALIZED, ACTIVE, CUSTOMER_PAUSED, CUSTOMER_CANCELLED. */
-  getSubscription(t: TenantConfig, subscriptionId: string): Promise<{ status: string; authorizationStatus: string | null }>;
+  /**
+   * Cashfree statuses passed through, e.g. INITIALIZED, ACTIVE, CUSTOMER_PAUSED, CUSTOMER_CANCELLED.
+   * `sessionId` is a fresh checkout session (Cashfree issues one per fetch) while the mandate awaits approval.
+   */
+  getSubscription(t: TenantConfig, subscriptionId: string): Promise<SubscriptionState>;
   /** `scheduleDate` is the IST collection day, YYYY-MM-DD. Repeating a raise for the same payment id is a no-op. */
   raiseCharge(t: TenantConfig, i: { subscriptionId: string; paymentId: string; amountPaise: number; scheduleDate: string }): Promise<void>;
   /** INITIALIZED | PENDING | SUCCESS | FAILED | CANCELLED. */
@@ -31,6 +34,12 @@ export interface PaymentProvider {
   /** Throws (ProviderError) when Cashfree refuses, e.g. already collected or in progress. */
   cancelCharge(t: TenantConfig, subscriptionId: string, paymentId: string): Promise<void>;
   cancelSubscription(t: TenantConfig, subscriptionId: string): Promise<void>;
+}
+
+export interface SubscriptionState {
+  status: string;
+  authorizationStatus: string | null;
+  sessionId: string | null;
 }
 
 export interface CreateSubscriptionInput {
