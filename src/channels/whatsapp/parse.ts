@@ -32,6 +32,7 @@ function mapBody(m: WaMessage): { kind: 'text'; text: string } | { kind: 'button
   if (m.type === 'location' && m.location) {
     return { kind: 'location', lat: m.location.latitude, lng: m.location.longitude };
   }
+  if (m.type === 'button' && m.button) return { kind: 'button', replyId: m.button.payload, title: m.button.text };
   if (m.type === 'interactive' && m.interactive) {
     const reply = m.interactive.button_reply ?? m.interactive.list_reply;
     if (reply) return { kind: 'button', replyId: reply.id, title: reply.title };

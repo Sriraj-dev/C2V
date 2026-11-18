@@ -121,6 +121,20 @@ describe('builders: shapes', () => {
         "type": "interactive",
       }
     `));
+  it('templateMsg with quick-reply payloads adds one button component per payload', () => {
+    expect(templateMsg('t', 'en', ['258'], { quickReplyPayloads: ['skip:abc'] })).toEqual({
+      type: 'template',
+      template: {
+        name: 't',
+        language: { code: 'en' },
+        components: [
+          { type: 'body', parameters: [{ type: 'text', text: '258' }] },
+          { type: 'button', sub_type: 'quick_reply', index: '0', parameters: [{ type: 'payload', payload: 'skip:abc' }] },
+        ],
+      },
+    });
+    expect(templateMsg('t', 'en', [], { quickReplyPayloads: [] })).toEqual(templateMsg('t', 'en', []));
+  });
   it('templateMsg', () => expect(templateMsg('hello', 'en', ['x', 'y'])).toMatchInlineSnapshot(`
     {
       "template": {

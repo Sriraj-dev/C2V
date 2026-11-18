@@ -23,6 +23,11 @@ describe('parseWebhook', () => {
       kind: 'button', replyId: 'order_now', title: 'Order now',
     });
   });
+  it('template quick reply (type button)', () => {
+    expect(parseWebhook(fx('template-quick-reply'))[0]).toMatchObject({
+      kind: 'button', replyId: 'skip:0b9c6a52-8f1e-4c3a-9d2b-5e7f1a2b3c4d', title: 'Skip this delivery',
+    });
+  });
   it('list_reply', () => {
     expect(parseWebhook(fx('list-reply'))[0]).toMatchObject({
       kind: 'button', replyId: 'sku_6_eggs', title: '6 eggs',

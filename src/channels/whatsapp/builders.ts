@@ -156,16 +156,23 @@ export function flowMsg(args: {
   };
 }
 
-export function templateMsg(name: string, lang: string, bodyParams: string[]): OutboundMessage {
+/** Template message; `quickReplyPayloads[i]` is the payload returned when the template's i-th quick-reply button is tapped. */
+export function templateMsg(
+  name: string,
+  lang: string,
+  bodyParams: string[],
+  opts: { quickReplyPayloads?: string[] } = {},
+): OutboundMessage {
+  const components: Record<string, unknown>[] = [];
+  if (bodyParams.length) {
+    components.push({ type: 'body', parameters: bodyParams.map((text) => ({ type: 'text', text })) });
+  }
+  (opts.quickReplyPayloads ?? []).forEach((payload, i) => {
+    components.push({ type: 'button', sub_type: 'quick_reply', index: String(i), parameters: [{ type: 'payload', payload }] });
+  });
   return {
     type: 'template',
-    template: {
-      name,
-      language: { code: lang },
-      ...(bodyParams.length
-        ? { components: [{ type: 'body', parameters: bodyParams.map((text) => ({ type: 'text', text })) }] }
-        : {}),
-    },
+    template: { name, language: { code: lang }, ...(components.length ? { components } : {}) },
   };
 }
 

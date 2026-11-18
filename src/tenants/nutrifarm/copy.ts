@@ -1,6 +1,8 @@
 import type { CopyLine, TenantCopy } from '../types.js';
 
 const lineText = (l: CopyLine) => `• ${l.name} × ${l.qty} — ${l.lineTotal}`;
+const contactUs = (supportPhone: string | null) =>
+  supportPhone ? `please contact us on ${supportPhone}` : 'please tap *Help* in the menu';
 
 export const nutrifarmCopy: TenantCopy = {
   welcome: (name) =>
@@ -10,14 +12,14 @@ export const nutrifarmCopy: TenantCopy = {
   menuPrompt: () => 'What would you like to do?',
   menuRows: () => ({
     order: 'Pick packs and get them delivered',
-    subscribe: 'Weekly deliveries, never run out',
+    subscribe: 'Regular deliveries, never run out',
     myOrders: 'Track your orders and subscriptions',
     help: 'Talk to the farm',
   }),
   orderFlowIntro: () =>
     'Let\'s get your eggs ordered 🥚 Tap below to pick your packs and delivery address.\n\nWe deliver to Koramangala, HSR Layout, BTM Layout, Bommanahalli and Marathahalli.',
   subscribeFlowIntro: () =>
-    'Set up a weekly delivery 🥚 Tap below to choose your packs and address. You will never run out of eggs again.',
+    'Set up a regular delivery 🥚 Tap below to choose your packs, how often (every week, every 2 weeks or every 4 weeks) and your address. You will never run out of eggs again.',
   subscribeComingSoon: () =>
     'Weekly subscriptions are under development and coming soon! 🚧 Meanwhile, tap *Order Eggs* in the menu to place a one-time order.',
   noItems: () => 'It looks like no eggs were selected. Please pick at least one pack and try again.',
@@ -36,9 +38,18 @@ export const nutrifarmCopy: TenantCopy = {
   linkExpired: (o) =>
     `Your payment link for order *${o.orderCode}* has expired. Tap *Order Eggs* in the menu to order again.`,
   subscriptionSummary: (o) =>
-    `Your weekly subscription:\n\n${o.lines.map(lineText).join('\n')}\n\n*${o.perDelivery}* per delivery, every ${o.weekdayName}.\nFirst delivery: ${o.firstDelivery}\n\nTap below to authorise the payment mandate.`,
+    `Your egg subscription:\n\n${o.lines.map(lineText).join('\n')}\n\n*${o.perDelivery}* per delivery, ${o.frequency}.\nFirst delivery: ${o.firstDelivery}\n\nTap *Set up AutoPay* below to approve UPI AutoPay. Two days before each delivery we'll message you, and you can skip that delivery.`,
   subscriptionActive: (o) =>
-    `Your subscription is active! 🎉 Your first delivery is on ${o.firstDelivery}.`,
+    `Your subscription is active! 🎉 Deliveries ${o.frequency}, starting ${o.firstDelivery}. We'll message you two days before each delivery.`,
+  subscriptionAuthFailed: () =>
+    "AutoPay wasn't set up, so your subscription hasn't started. Tap *Subscribe* in the menu to try again.",
+  subscriptionCancelled: () =>
+    'Your egg subscription has been cancelled. No more payments will be collected. Tap *Subscribe* in the menu any time to start again.',
+  skipDone: (o) => `Done. We won't charge or deliver on ${o.date}. Your next delivery is on ${o.next}.`,
+  skipAlreadyPaid: (o) =>
+    `This delivery is already paid and confirmed (order *${o.orderCode}*). To cancel it, ${contactUs(o.supportPhone)}.`,
+  skipProcessing: (o) =>
+    `Your payment for this delivery is already being processed. To cancel it, ${contactUs(o.supportPhone)}.`,
   myOrders: (rows, subs) => {
     if (rows.length === 0 && subs.length === 0) return 'No orders yet. Tap *Order Eggs* in the menu below to place your first order.';
     const parts: string[] = [];
@@ -48,7 +59,7 @@ export const nutrifarmCopy: TenantCopy = {
       );
     if (subs.length)
       parts.push(
-        `*Subscriptions*\n${subs.map((s) => `• ${s.perDelivery} every ${s.weekdayName} (next: ${s.nextDelivery})`).join('\n')}`,
+        `*Subscriptions*\n${subs.map((s) => `• ${s.perDelivery} ${s.frequency} (next: ${s.nextDelivery})`).join('\n')}`,
       );
     return parts.join('\n\n');
   },

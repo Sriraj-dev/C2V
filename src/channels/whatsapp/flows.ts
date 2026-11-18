@@ -210,13 +210,13 @@ export class FlowPublishError extends Error {
   }
 }
 
-function tokenFor(tenant: TenantConfig): string {
+export function tokenFor(tenant: TenantConfig): string {
   const token = process.env[tenant.waTokenEnv];
   if (!token) throw new FlowPublishError(`Missing WhatsApp token: env var ${tenant.waTokenEnv} is not set`);
   return token;
 }
 
-async function graph(
+export async function graph(
   url: string,
   init: RequestInit,
   fetchImpl: typeof fetch,

@@ -23,6 +23,8 @@ const message = z.looseObject({
     })
     .optional(),
   location: z.looseObject({ latitude: z.number(), longitude: z.number() }).optional(),
+  /** Template quick-reply tap. */
+  button: z.looseObject({ payload: z.string(), text: z.string() }).optional(),
 });
 
 export const changeValueSchema = z.looseObject({

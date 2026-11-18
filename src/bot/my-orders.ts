@@ -4,7 +4,7 @@ import { sendAndLog } from '../channels/whatsapp/sender.js';
 import type { Customer } from '../customers/customer-repo.js';
 import { products, subscriptionItems, subscriptions } from '../db/schema.js';
 import type { AppDeps } from '../deps.js';
-import { formatDeliveryDate, weekdayName } from '../domain/delivery-date.js';
+import { formatDeliveryDate, frequencyLabel } from '../domain/delivery-date.js';
 import { formatPaise } from '../domain/money.js';
 import { listRecentOrders } from '../orders/order-repo.js';
 import { getTenantSettings } from '../tenants/settings-repo.js';
@@ -43,7 +43,7 @@ export async function sendMyOrders(deps: AppDeps, tenant: TenantConfig, customer
     .orderBy(subscriptions.createdAt, subscriptions.id)
     .limit(5);
 
-  const subRows: { perDelivery: string; weekdayName: string; nextDelivery: string }[] = [];
+  const subRows: { perDelivery: string; frequency: string; nextDelivery: string }[] = [];
   if (subs.length) {
     const { deliveryFeePaise } = await getTenantSettings(db, tenant.id);
     // Subscription items store no unit price, so the current product price is used (inactive products
@@ -57,7 +57,7 @@ export async function sendMyOrders(deps: AppDeps, tenant: TenantConfig, customer
       const sum = items.filter((i) => i.subscriptionId === s.id).reduce((a, i) => a + i.quantity * i.pricePaise, 0);
       subRows.push({
         perDelivery: formatPaise(sum + deliveryFeePaise),
-        weekdayName: weekdayName(s.deliveryWeekday),
+        frequency: frequencyLabel(s.frequency, s.deliveryWeekday),
         nextDelivery: s.nextDeliveryDate ? formatDeliveryDate(s.nextDeliveryDate) : 'pending',
       });
     }

@@ -50,3 +50,35 @@ export function frequencyStepDays(f: Frequency): 7 | 14 | 28 {
       return 28;
   }
 }
+
+/** Weekday occurrences closer than this many days after activation are too soon to charge on D-2. */
+const MIN_LEAD_DAYS = 2;
+/** On activation exactly MIN_LEAD_DAYS before a delivery, the D-2 charge must be raised before 21:00; cut off at 20:00. */
+const LATE_ACTIVATION_HOUR_IST = 20;
+
+/**
+ * First subscription delivery (spec §10 "First delivery"): the first `weekday` (0=Sun..6=Sat) at least 2 days after
+ * `now`'s IST day; if that date is exactly 2 days away and `now` is at or after 20:00 IST, the one a week later.
+ */
+export function firstSubscriptionDelivery(now: Date, weekday: number): string {
+  const ist = new Date(now.getTime() + IST_OFFSET_MS);
+  const todayIso = ist.toISOString().slice(0, 10);
+  let first = nextDeliveryDate(new Date(`${addDays(todayIso, MIN_LEAD_DAYS - 1)}T12:00:00+05:30`), weekday);
+  if (first === addDays(todayIso, MIN_LEAD_DAYS) && ist.getUTCHours() >= LATE_ACTIVATION_HOUR_IST) {
+    first = addDays(first, 7);
+  }
+  return first;
+}
+
+/** e.g. 'every Wednesday', 'every 2 weeks on Wednesday', 'every 4 weeks on Wednesday'. */
+export function frequencyLabel(f: Frequency, weekday: number): string {
+  const day = weekdayName(weekday);
+  switch (f) {
+    case 'weekly':
+      return `every ${day}`;
+    case 'biweekly':
+      return `every 2 weeks on ${day}`;
+    case 'monthly':
+      return `every 4 weeks on ${day}`;
+  }
+}

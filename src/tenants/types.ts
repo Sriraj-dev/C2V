@@ -25,16 +25,26 @@ export interface TenantCopy {
   orderSummary(o: { orderCode: string; lines: CopyLine[]; total: string; deliveryDate: string }): string;
   orderConfirmed(o: { orderCode: string; deliveryDate: string }): string;
   linkExpired(o: { orderCode: string }): string;
+  /** `frequency` from `frequencyLabel`, e.g. 'every 2 weeks on Wednesday'. */
   subscriptionSummary(o: {
     lines: CopyLine[];
     perDelivery: string;
-    weekdayName: string;
+    frequency: string;
     firstDelivery: string;
   }): string;
-  subscriptionActive(o: { firstDelivery: string }): string;
+  subscriptionActive(o: { firstDelivery: string; frequency: string }): string;
+  /** The customer did not approve the AutoPay mandate (failed or link expired). */
+  subscriptionAuthFailed(): string;
+  /** Subscription cancelled (by the vendor or from the customer's UPI app). */
+  subscriptionCancelled(): string;
+  skipDone(o: { date: string; next: string }): string;
+  /** Skip tapped after the charge was collected. `supportPhone` null → point to Help. */
+  skipAlreadyPaid(o: { orderCode: string; supportPhone: string | null }): string;
+  /** Skip tapped while the bank is processing the charge. */
+  skipProcessing(o: { supportPhone: string | null }): string;
   myOrders(
     rows: { orderCode: string; status: string; deliveryDate: string; total: string }[],
-    subs: { perDelivery: string; weekdayName: string; nextDelivery: string }[],
+    subs: { perDelivery: string; frequency: string; nextDelivery: string }[],
   ): string;
   invalidEmail(): string;
   genericError(): string;

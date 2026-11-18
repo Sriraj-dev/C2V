@@ -54,6 +54,7 @@ export const paymentStatusEnum = pgEnum('payment_status', [
   'failed',
   'expired',
   'refunded',
+  'cancelled',
 ]);
 export const messageDirectionEnum = pgEnum('message_direction', ['in', 'out']);
 
@@ -176,6 +177,10 @@ export const subscriptions = pgTable(
     nextDeliveryDate: date('next_delivery_date', { mode: 'string' }),
     cfSubscriptionId: text('cf_subscription_id').unique(),
     authLink: text('auth_link'),
+    /** Cashfree `subscription_session_id`, used by the authorisation page. */
+    cfSessionId: text('cf_session_id'),
+    /** Random token in the `/subscribe/:token` authorisation page URL. */
+    authToken: text('auth_token').unique(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

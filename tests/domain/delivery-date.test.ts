@@ -5,6 +5,8 @@ import {
   formatDeliveryDate,
   addDays,
   frequencyStepDays,
+  firstSubscriptionDelivery,
+  frequencyLabel,
 } from '../../src/domain/delivery-date.js';
 
 describe('nextDeliveryDate', () => {
@@ -72,5 +74,36 @@ describe('weekdayName', () => {
     expect(weekdayName(0)).toBe('Sunday');
     expect(weekdayName(3)).toBe('Wednesday');
     expect(weekdayName(9)).toBe('day');
+  });
+});
+
+describe('firstSubscriptionDelivery', () => {
+  const ist = (s: string) => new Date(`${s}+05:30`);
+  it('uses the weekday exactly 2 days away when activated before 20:00 IST', () => {
+    expect(firstSubscriptionDelivery(ist('2026-11-16T10:00:00'), 3)).toBe('2026-11-18');
+    expect(firstSubscriptionDelivery(ist('2026-11-16T19:59:00'), 3)).toBe('2026-11-18');
+  });
+  it('moves a week later when activated at or after 20:00 IST two days before', () => {
+    expect(firstSubscriptionDelivery(ist('2026-11-16T20:00:00'), 3)).toBe('2026-11-25');
+    expect(firstSubscriptionDelivery(ist('2026-11-16T20:30:00'), 3)).toBe('2026-11-25');
+  });
+  it('skips a weekday less than 2 days away', () => {
+    expect(firstSubscriptionDelivery(ist('2026-11-17T09:00:00'), 3)).toBe('2026-11-25');
+    expect(firstSubscriptionDelivery(ist('2026-11-18T09:00:00'), 3)).toBe('2026-11-25');
+  });
+  it('rolls over the year', () => {
+    expect(firstSubscriptionDelivery(ist('2026-12-30T10:00:00'), 5)).toBe('2027-01-01');
+  });
+  it('uses the IST day around UTC midnight', () => {
+    // 2026-11-15T19:00Z is Mon 16 Nov 00:30 IST
+    expect(firstSubscriptionDelivery(new Date('2026-11-15T19:00:00Z'), 3)).toBe('2026-11-18');
+  });
+});
+
+describe('frequencyLabel', () => {
+  it('describes each frequency with the weekday', () => {
+    expect(frequencyLabel('weekly', 3)).toBe('every Wednesday');
+    expect(frequencyLabel('biweekly', 3)).toBe('every 2 weeks on Wednesday');
+    expect(frequencyLabel('monthly', 3)).toBe('every 4 weeks on Wednesday');
   });
 });
