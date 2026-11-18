@@ -35,6 +35,12 @@ pino. Cashfree Subscriptions API `2026-01-01` (`/pg/subscriptions…`), WhatsApp
   contract is updated in the same commit and re-copied to the dashboard repo (local, uncommitted there).
 - No secrets in commits; run `bash .superpowers/secret-check.sh` before each commit. Never stage `CLIENT_CHECKLIST.md` / `LEARNING.md`.
 
+## Open for discussion
+
+- **Charge job timing (raised 2026-11-18):** the user prefers one run per day over hourly. To settle before Task 6:
+  run time, in-run retries (2–3) on Cashfree errors, and how a mandate approved after that day's run gets its first
+  charge (e.g. raise it at activation). A cycle that fails on D-2 can still be raised on D-1 for D.
+
 ## Review Focus
 
 1. Duplicate effects from repeated webhooks or overlapping hourly runs: two orders for one cycle, two upcoming
