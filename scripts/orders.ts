@@ -8,6 +8,7 @@ import type { AppDeps } from '../src/deps.js';
 import { findOrderByCode } from '../src/orders/order-repo.js';
 import { findLinkPayment, refundOrder, updateStatus } from '../src/orders/order-status.js';
 import { CashfreeProvider } from '../src/payments/cashfree/client.js';
+import { cancelSubscription } from '../src/subscriptions/subscription-service.js';
 import { nutrifarm } from '../src/tenants/nutrifarm/config.js';
 import { registerTenants, tenantById } from '../src/tenants/registry.js';
 import { printEnvBanner } from './lib/env-banner.js';
@@ -18,11 +19,17 @@ printEnvBanner();
  * Ops tool for vendor order operations (same service functions the Phase 2 dashboard will call).
  *
  *   pnpm orders <tenantId> <orderCode> assign <partnerPhone> | out-for-delivery | delivered | cancel | refund
+ *   pnpm orders <tenantId> sub <subscriptionId> cancel
  */
-const USAGE = 'Usage: pnpm orders <tenantId> <orderCode> assign <partnerPhone> | out-for-delivery | delivered | cancel | refund';
+const USAGE =
+  'Usage: pnpm orders <tenantId> <orderCode> assign <partnerPhone> | out-for-delivery | delivered | cancel | refund\n' +
+  '       pnpm orders <tenantId> sub <subscriptionId> cancel';
 const [tenantId, orderCode, action, arg] = process.argv.slice(2);
+const isSub = orderCode === 'sub';
 const needsArg = action === 'assign';
-if (!tenantId || !orderCode || !['assign', 'out-for-delivery', 'delivered', 'cancel', 'refund'].includes(action ?? '') || (needsArg && !arg)) {
+const validOrderCmd = ['assign', 'out-for-delivery', 'delivered', 'cancel', 'refund'].includes(action ?? '') && (!needsArg || !!arg);
+const validSubCmd = isSub && !!action && arg === 'cancel';
+if (!tenantId || !orderCode || !(isSub ? validSubCmd : validOrderCmd)) {
   console.error(USAGE);
   process.exit(1);
 }
@@ -40,6 +47,12 @@ try {
     whatsapp: new GraphWhatsAppSender(env),
     payments: new CashfreeProvider(env),
   };
+  if (isSub) {
+    // `action` holds the subscription id here: pnpm orders <tenant> sub <id> cancel
+    const r = await cancelSubscription(deps, tenant, action!);
+    console.log(`subscription ${action}: ${r === 'cancelled' ? 'cancelled' : 'already cancelled'}`);
+    process.exit(0);
+  }
   const order = await findOrderByCode(deps.db, tenant.id, orderCode);
   if (!order) throw new Error(`Order ${orderCode} not found for tenant ${tenant.id}`);
 

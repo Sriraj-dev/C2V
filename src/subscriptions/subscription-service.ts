@@ -171,6 +171,39 @@ export async function onSubscriptionStatus(
   return 'unchanged';
 }
 
+export type CancelResult = 'cancelled' | 'already_cancelled';
+
+/**
+ * Vendor cancel (dashboard / CLI; spec §10 "Cancel"). Cashfree is cancelled first: if that fails, nothing changes and
+ * the error is thrown. Then local `cancelled`, open charges and their upcoming orders cancelled (best effort), and the
+ * customer is told. Confirmed orders are untouched. Pending-authorisation subscriptions can be cancelled too.
+ */
+export async function cancelSubscription(deps: AppDeps, tenant: TenantConfig, subscriptionId: string): Promise<CancelResult> {
+  const [sub] = await deps.db
+    .select()
+    .from(subscriptions)
+    .where(and(eq(subscriptions.id, subscriptionId), eq(subscriptions.tenantId, tenant.id)))
+    .limit(1);
+  if (!sub) throw new Error(`Subscription ${subscriptionId} not found for tenant ${tenant.id}`);
+  if (sub.status === 'cancelled' || sub.status === 'authorization_failed') return 'already_cancelled';
+
+  await deps.payments.cancelSubscription(tenant, sub.id);
+  const [row] = await deps.db
+    .update(subscriptions)
+    .set({ status: 'cancelled', nextDeliveryDate: null, updatedAt: deps.now() })
+    .where(and(eq(subscriptions.id, sub.id), inArray(subscriptions.status, ['pending_authorization', 'active'])))
+    .returning();
+  if (!row) return 'already_cancelled';
+  deps.log.info({ tenantId: tenant.id, subscriptionId }, 'subscription cancelled by vendor');
+  try {
+    await cancelOpenCharges(deps, tenant, sub.id);
+  } catch (err) {
+    deps.log.error({ tenantId: tenant.id, subscriptionId, err: errInfo(err) }, 'cancelling open charges failed');
+  }
+  await notify(deps, tenant, sub.customerId, tenant.copy.subscriptionCancelled());
+  return 'cancelled';
+}
+
 /**
  * Cancels every not-yet-collected (`created`) charge of a subscription at Cashfree; each one Cashfree accepts is marked
  * `cancelled` with its upcoming order. A charge Cashfree refuses (already collected or in progress) is left for the

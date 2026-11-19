@@ -4,7 +4,7 @@ import { sendAndLog } from '../channels/whatsapp/sender.js';
 import type { Customer } from '../customers/customer-repo.js';
 import { products, subscriptionItems, subscriptions } from '../db/schema.js';
 import type { AppDeps } from '../deps.js';
-import { formatDeliveryDate, frequencyLabel } from '../domain/delivery-date.js';
+import { addDays, formatDeliveryDate, frequencyLabel, istToday } from '../domain/delivery-date.js';
 import { formatPaise } from '../domain/money.js';
 import { listRecentOrders } from '../orders/order-repo.js';
 import { getTenantSettings } from '../tenants/settings-repo.js';
@@ -25,6 +25,11 @@ export function orderStatusLabel(status: string): string {
   if (known) return known;
   const s = status.replace(/_/g, ' ');
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** An upcoming subscription order: AutoPay collects the day before delivery (or on the day if that was missed). */
+export function upcomingLabel(deliveryDate: string, today: string): string {
+  return addDays(deliveryDate, -1) > today ? 'Upcoming · payment tomorrow' : 'Upcoming · payment today';
 }
 
 /**
@@ -63,14 +68,16 @@ export async function sendMyOrders(deps: AppDeps, tenant: TenantConfig, customer
     }
   }
 
+  const today = istToday(deps.now());
   const rows = orders.map((o) => ({
     orderCode: o.orderCode,
-    status: orderStatusLabel(o.status),
+    status: o.source === 'subscription' && o.status === 'payment_pending' ? upcomingLabel(o.deliveryDate, today) : orderStatusLabel(o.status),
     deliveryDate: formatDeliveryDate(o.deliveryDate),
     total: formatPaise(o.totalPaise),
   }));
   let body = tenant.copy.myOrders(rows, subRows);
-  if (orders.some((o) => o.status === 'payment_pending')) body += `\n\n${tenant.copy.pendingPaymentNote()}`;
+  // The pay-link note is for one-time orders; upcoming subscription orders are paid by AutoPay.
+  if (orders.some((o) => o.status === 'payment_pending' && o.source !== 'subscription')) body += `\n\n${tenant.copy.pendingPaymentNote()}`;
   await sendAndLog(deps, tenant, customer, textMsg(body), body);
   if (rows.length === 0 && subRows.length === 0) await sendMenu(deps, tenant, customer);
 }

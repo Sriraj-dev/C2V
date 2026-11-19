@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { orderStatusLabel, sendMyOrders } from '../../src/bot/my-orders.js';
+import { orderStatusLabel, sendMyOrders, upcomingLabel } from '../../src/bot/my-orders.js';
 import { handleInbound } from '../../src/bot/router.js';
 import type { Db } from '../../src/db/client.js';
 import { orders, subscriptionItems, subscriptions } from '../../src/db/schema.js';
@@ -144,6 +144,35 @@ describe('sendMyOrders', () => {
     });
     await sendMyOrders(deps, tenant, c);
     expect(text()).toContain('(next: pending)');
+  });
+
+  it('biweekly subscription shows its schedule and next date', async () => {
+    const c = await seedCustomer(db, 'test');
+    const p = await seedProduct(db, 'test', { pricePaise: 9000 });
+    const [s] = await db.insert(subscriptions).values({
+      tenantId: 'test', customerId: c.id, status: 'active', frequency: 'biweekly', address: { name: 'A', line1: 'x', pincode: '560035' } as any,
+      pincode: '560035', deliveryWeekday: 3, perDeliveryTotalPaise: 0, nextDeliveryDate: '2026-12-02',
+    }).returning();
+    await db.insert(subscriptionItems).values({ subscriptionId: s!.id, productId: p.id, quantity: 1 });
+    await sendMyOrders(deps, tenant, c);
+    expect(text()).toContain('every 2 weeks on Wednesday (next: Wed, 2 Dec)');
+  });
+
+  it('an upcoming subscription order shows Upcoming · payment tomorrow, without the pay-link note', async () => {
+    deps = testDeps({ db, whatsapp: wa, now: () => new Date('2026-11-23T04:30:00Z') }); // Mon, D-2 for Wed 25 Nov
+    const c = await seedCustomer(db, 'test');
+    await db.insert(orders).values({
+      tenantId: 'test', orderCode: 'NF-UP1', customerId: c.id, source: 'subscription', status: 'payment_pending', deliveryDate: '2026-11-25',
+      address: { name: 'A', line1: 'x', pincode: '560035' } as any, pincode: '560035', subtotalPaise: 9000, deliveryFeePaise: 0, totalPaise: 9000,
+    });
+    await sendMyOrders(deps, tenant, c);
+    expect(text()).toContain('NF-UP1 — Upcoming · payment tomorrow — Wed, 25 Nov');
+    expect(text()).not.toContain(tenant.copy.pendingPaymentNote());
+  });
+
+  it('upcomingLabel says today on the collection day', () => {
+    expect(upcomingLabel('2026-11-25', '2026-11-23')).toBe('Upcoming · payment tomorrow');
+    expect(upcomingLabel('2026-11-25', '2026-11-24')).toBe('Upcoming · payment today');
   });
 
   it('router routes the My Orders button here', async () => {
