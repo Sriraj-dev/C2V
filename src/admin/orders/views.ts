@@ -19,6 +19,8 @@ export interface OrderView {
   orderCode: string;
   status: OrderStatus;
   source: 'one_time' | 'subscription';
+  /** Set for subscription orders. */
+  subscriptionId: string | null;
   deliveryDate: string;
   pincode: string;
   address: Address;
@@ -45,7 +47,7 @@ export function orderPhone(waId: string | null | undefined, address: Address): s
 const uniq = <T>(xs: T[]): T[] => [...new Set(xs)];
 
 /** Builds OrderViews for rows already scoped to the tenant. One query each for items, customers,
- * partners and link payments regardless of row count. Preserves row order. */
+ * partners and payments regardless of row count. Preserves row order. */
 export async function toOrderViews(db: Db, tenantId: string, rows: OrderRow[]): Promise<OrderView[]> {
   if (rows.length === 0) return [];
   const orderIds = rows.map((r) => r.id);
@@ -64,7 +66,7 @@ export async function toOrderViews(db: Db, tenantId: string, rows: OrderRow[]): 
     db
       .select()
       .from(payments)
-      .where(and(eq(payments.tenantId, tenantId), eq(payments.kind, 'link'), inArray(payments.orderId, orderIds))),
+      .where(and(eq(payments.tenantId, tenantId), inArray(payments.kind, ['link', 'subscription_charge']), inArray(payments.orderId, orderIds))),
   ]);
 
   const itemsByOrder = new Map<string, OrderView['items']>();
@@ -82,7 +84,11 @@ export async function toOrderViews(db: Db, tenantId: string, rows: OrderRow[]): 
   const customerById = new Map(customerRows.map((c) => [c.id, c]));
   const partnerById = new Map(partnerRows.map((p) => [p.id, p]));
   const payByOrder = new Map<string, PaymentStatus>();
-  for (const p of paymentRows) if (p.orderId) payByOrder.set(p.orderId, p.status);
+  // A link payment wins; a subscription order's AutoPay charge is used when there is no link payment.
+  for (const p of paymentRows) {
+    if (!p.orderId) continue;
+    if (p.kind === 'link' || !payByOrder.has(p.orderId)) payByOrder.set(p.orderId, p.status);
+  }
 
   return rows.map((r) => {
     const c = customerById.get(r.customerId);
@@ -93,6 +99,7 @@ export async function toOrderViews(db: Db, tenantId: string, rows: OrderRow[]): 
       orderCode: r.orderCode,
       status: r.status,
       source: r.source,
+      subscriptionId: r.subscriptionId ?? null,
       deliveryDate: r.deliveryDate,
       pincode: r.pincode,
       address: r.address,

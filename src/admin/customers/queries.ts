@@ -3,6 +3,7 @@ import type { Db } from '../../db/client.js';
 import { customers, orders, type Address, type GeoLocation } from '../../db/schema.js';
 import { localPhoneDigits } from '../search.js';
 import { toOrderViews, type OrderView } from '../orders/views.js';
+import { listSubscriptions, type SubscriptionView } from '../subscriptions/queries.js';
 
 type CustomerRow = typeof customers.$inferSelect;
 
@@ -70,7 +71,7 @@ export async function getCustomer(
   db: Db,
   tenantId: string,
   id: string,
-): Promise<{ customer: CustomerView; orders: OrderView[] } | null> {
+): Promise<{ customer: CustomerView; orders: OrderView[]; subscriptions: SubscriptionView[] } | null> {
   const [row] = await db
     .select()
     .from(customers)
@@ -83,5 +84,6 @@ export async function getCustomer(
     .where(and(eq(orders.tenantId, tenantId), eq(orders.customerId, id)))
     .orderBy(desc(orders.createdAt), desc(orders.id))
     .limit(20);
-  return { customer: toCustomerView(row), orders: await toOrderViews(db, tenantId, recent) };
+  const subs = await listSubscriptions(db, tenantId, { customerId: id, page: 1, pageSize: 20 });
+  return { customer: toCustomerView(row), orders: await toOrderViews(db, tenantId, recent), subscriptions: subs.items };
 }

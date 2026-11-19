@@ -57,7 +57,8 @@ Decided with the user on 2026-11-15:
 ```ts
 type OrderStatus = 'payment_pending' | 'confirmed' | 'assigned' | 'out_for_delivery'
                  | 'delivered' | 'cancelled' | 'payment_failed' | 'expired';
-type PaymentStatus = 'created' | 'paid' | 'failed' | 'expired' | 'refunded';
+type PaymentStatus = 'created' | 'paid' | 'failed' | 'expired' | 'refunded' | 'cancelled';
+type SubscriptionStatus = 'pending_authorization' | 'active' | 'cancelled' | 'authorization_failed';
 
 type Address = { name: string; line1: string; landmark?: string; pincode: string; phone?: string };
 type GeoLocation = { lat: number; lng: number };
@@ -67,6 +68,7 @@ interface OrderView {
   orderCode: string;          // "NF-7K3QX9", show to humans
   status: OrderStatus;
   source: 'one_time' | 'subscription';
+  subscriptionId: string | null;  // set for subscription orders
   deliveryDate: string;       // YYYY-MM-DD
   pincode: string;
   address: Address;           // snapshot taken at order time; phone (10 digits) only if the customer typed one
@@ -75,7 +77,7 @@ interface OrderView {
   subtotalPaise: number; deliveryFeePaise: number; totalPaise: number;
   customer: { id: string; profileName: string | null; phone: string | null };
   partner: { id: string; name: string; phone: string } | null;
-  paymentStatus: PaymentStatus | null;   // the order's payment-link payment; null if none
+  paymentStatus: PaymentStatus | null;   // the payment-link payment, or for a subscription order its AutoPay charge; null if none
   items: { productId: string; name: string; unitPricePaise: number; quantity: number; lineTotalPaise: number }[];
   createdAt: string; updatedAt: string; paidAt: string | null; deliveredAt: string | null;
 }
@@ -87,6 +89,19 @@ interface CustomerView {
   email: string | null;
   defaultAddress: Address | null;
   defaultLocation: GeoLocation | null;
+  createdAt: string;
+}
+
+interface SubscriptionView {
+  id: string;
+  status: SubscriptionStatus;
+  frequency: 'weekly' | 'biweekly' | 'monthly';   // every 7, 14 or 28 days
+  deliveryWeekday: number;           // 0 = Sunday ... 6 = Saturday
+  nextDeliveryDate: string | null;   // YYYY-MM-DD; null until AutoPay is approved, and once cancelled
+  perDeliveryTotalPaise: number;     // at sign-up; each charge uses current prices
+  pincode: string;
+  address: Address;
+  customer: { id: string; profileName: string | null; phone: string | null };
   createdAt: string;
 }
 
@@ -182,7 +197,7 @@ ENV=prod pnpm vendors activate <username>
 
 | Method & path | Notes | Response |
 |---|---|---|
-| `GET /admin/orders/active` | All `confirmed`, `assigned`, `out_for_delivery` orders. **Not paged** (a small working set). Newest first (by order creation time) | `200 { items: OrderView[] }` |
+| `GET /admin/orders/active` | All `confirmed`, `assigned`, `out_for_delivery` orders. Upcoming subscription orders (`payment_pending`, created two days before delivery) are not here; they appear in `GET /admin/orders` and join this list once the AutoPay charge is collected the day before delivery. **Not paged** (a small working set). Newest first (by order creation time) | `200 { items: OrderView[] }` |
 | `GET /admin/orders` | Paged history, all statuses. Filters (all optional): `status` (comma list of `OrderStatus`, e.g. `confirmed,assigned`; unknown value is 400), `deliveryFrom`, `deliveryTo` (YYYY-MM-DD, inclusive), `pincode` (exactly 6 digits), `partnerId` (uuid), `q` (max 100 chars; partial match on order code, or on the customer's WhatsApp number or order-form phone when it has digits). Sorted newest first | `200 { items: OrderView[], page, pageSize, total }` |
 | `GET /admin/orders/:id` | | `200 { order: OrderView }` · 404 |
 | `GET /admin/refunds/needed` | Orders with a `paid` link payment whose status is `cancelled` (reason `cancelled_after_payment`) or `expired` (`paid_after_expiry`: paid after the link closed). Once refunded they drop off. Not paged, newest first | `200 { items: (OrderView & { refundReason: 'cancelled_after_payment' \| 'paid_after_expiry' })[] }` |
@@ -208,7 +223,7 @@ All return the updated order. Only transitions valid for the current status succ
 | Method & path | Notes | Response |
 |---|---|---|
 | `GET /admin/customers` | Paged. `q` (max 100 chars) matches profile name or saved-address name (partial, case-insensitive), or WhatsApp number / saved-address phone when it contains digits. Sorted newest first | `200 { items: CustomerView[], page, pageSize, total }` |
-| `GET /admin/customers/:id` | Includes the 20 most recent orders (newest first, all statuses) | `200 { customer: CustomerView, orders: OrderView[] }` · 404 |
+| `GET /admin/customers/:id` | Includes the 20 most recent orders (newest first, all statuses) and up to 20 subscriptions (newest first, all statuses) | `200 { customer: CustomerView, orders: OrderView[], subscriptions: SubscriptionView[] }` · 404 |
 
 `CustomerView` is defined in section 2.
 
@@ -331,7 +346,38 @@ type ChatListItem = {
 
 ---
 
-## 10. Examples
+## 10. Subscriptions
+
+Customers subscribe on WhatsApp and approve UPI AutoPay. Two days before each delivery the bot creates a
+`payment_pending` subscription order and raises the charge, collected the day before delivery: collected →
+order `confirmed`; failed → `payment_failed`; skipped by the customer → `cancelled`. Only the vendor cancels a
+subscription (customers ask via Help).
+
+| Method & path | Notes | Response |
+|---|---|---|
+| `GET /admin/subscriptions` | Paged. `status` (optional, comma list of `SubscriptionStatus`; unknown value is 400). Newest first | `200 { items: SubscriptionView[], page, pageSize, total }` |
+| `GET /admin/subscriptions/:id` | Items at **current** prices (`active: false` = product deactivated, left out of charges). Charges newest first, one per delivery, with the order they belong to | `200 { subscription: SubscriptionDetail }` · 404 |
+| `POST /admin/subscriptions/:id/cancel` | none. Cancels AutoPay at Cashfree first, then the subscription; any charge not yet collected is cancelled with its upcoming order. Confirmed orders are untouched. The customer gets a WhatsApp message. Also works while AutoPay is not yet approved. Safe to retry | `200 { result: 'cancelled' \| 'already_cancelled', subscription: SubscriptionDetail }` · 404 · 502 `provider_error` if Cashfree fails (nothing changed) |
+
+```ts
+interface SubscriptionDetail extends SubscriptionView {
+  items: { productId: string; name: string; quantity: number; unitPricePaise: number; active: boolean }[];
+  charges: {
+    id: string;
+    forDeliveryDate: string | null;   // YYYY-MM-DD
+    amountPaise: number;
+    status: PaymentStatus;            // created = waiting to be collected
+    orderId: string | null;
+    orderCode: string | null;
+    createdAt: string;
+  }[];
+}
+```
+Refunding a subscription order is not available yet: `POST /admin/orders/:id/refund` returns 422 `not_supported`.
+
+---
+
+## 11. Examples
 
 All values are made up. Responses are shortened only where noted.
 
@@ -352,6 +398,7 @@ POST /admin/auth/login
   "orderCode": "NF-7K3QX9",
   "status": "assigned",
   "source": "one_time",
+  "subscriptionId": null,
   "deliveryDate": "2026-11-18",
   "pincode": "560034",
   "address": { "name": "Asha Rao", "line1": "12, 4th Cross, Koramangala", "landmark": "Near the park", "pincode": "560034", "phone": "9800000001" },
@@ -380,7 +427,8 @@ POST /admin/auth/login
     "defaultLocation": { "lat": 12.9352, "lng": 77.6245 },
     "createdAt": "2026-10-02T11:20:00.000Z"
   },
-  "orders": [ ]
+  "orders": [ ],
+  "subscriptions": [ ]
 }
 ```
 
@@ -461,8 +509,8 @@ POST /admin/products   { "sku": "x", "name": "", "pricePaise": 0 }
 
 ---
 
-## 11. Not in this version
+## 12. Not in this version
 
 Rate limiting (login, `/admin/*`, `/partner/*`), audit trail (who changed what), staff logins (the table supports several per tenant, but the
 CLI and dashboard assume one), unassigning open orders when a partner is deactivated, customer messages on cancel or refund, the out-for-delivery customer message,
-subscriptions UI, live push (polling is fine).
+subscription refunds, pausing or editing a subscription, live push (polling is fine).

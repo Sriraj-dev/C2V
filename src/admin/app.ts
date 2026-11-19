@@ -7,6 +7,7 @@ import { settingsRoutes } from './settings/routes.js';
 import { catalogRoutes } from './catalog/routes.js';
 import { partnerAdminRoutes } from './partners/routes.js';
 import { chatRoutes } from './chats/routes.js';
+import { subscriptionRoutes } from './subscriptions/routes.js';
 import { ApiError, errorResponse, REQUEST_TIMEOUT_MS, requestTimeout, type AdminEnv } from './http.js';
 
 /**
@@ -25,6 +26,7 @@ export function adminRoutes(deps: AppDeps): Hono<AdminEnv> {
   app.route('/', catalogRoutes(deps));
   app.route('/', partnerAdminRoutes(deps));
   app.route('/', chatRoutes(deps));
+  app.route('/', subscriptionRoutes(deps));
   // Keep last: unknown paths (after requireVendor, so unauthenticated callers still get 401).
   app.all('*', () => {
     throw new ApiError(404, 'not_found', 'Not found');
