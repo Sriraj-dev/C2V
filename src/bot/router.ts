@@ -5,6 +5,7 @@ import { sendAndLog } from '../channels/whatsapp/sender.js';
 import { upsertCustomer, type Customer } from '../customers/customer-repo.js';
 import type { AppDeps } from '../deps.js';
 import { recordInbound } from '../messages/message-store.js';
+import { skipCharge } from '../subscriptions/charge-results.js';
 import type { TenantConfig } from '../tenants/types.js';
 import {
   onLocationShared,
@@ -18,6 +19,8 @@ import { BTN_HELP, BTN_MY_ORDERS, BTN_ORDER, BTN_SUBSCRIBE, sendHelp, sendMenu }
 
 export { BTN_HELP, BTN_MY_ORDERS, BTN_ORDER, BTN_SUBSCRIBE };
 
+const SKIP_PREFIX = 'skip:';
+
 async function dispatch(
   deps: AppDeps,
   tenant: TenantConfig,
@@ -25,6 +28,8 @@ async function dispatch(
   msg: InboundMessage,
 ): Promise<void> {
   if (msg.kind === 'button') {
+    // Quick reply on the upcoming-charge template.
+    if (msg.replyId.startsWith(SKIP_PREFIX)) return skipCharge(deps, tenant, customer, msg.replyId.slice(SKIP_PREFIX.length));
     switch (msg.replyId) {
       case BTN_ORDER:
         return sendOrderFlow(deps, tenant, customer);

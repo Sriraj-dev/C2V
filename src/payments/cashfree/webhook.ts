@@ -56,7 +56,8 @@ export function parseCashfreeEvent(body: unknown): CashfreeEvent {
         return { type: 'subscription_status', subscriptionId, status };
       }
       case 'SUBSCRIPTION_PAYMENT_SUCCESS':
-      case 'SUBSCRIPTION_PAYMENT_FAILED': {
+      case 'SUBSCRIPTION_PAYMENT_FAILED':
+      case 'SUBSCRIPTION_PAYMENT_CANCELLED': {
         const subscriptionId = str(data.subscription_id) ?? str(rec(data.subscription_details)?.subscription_id);
         const paymentId = str(data.payment_id) ?? str(data.cf_payment_id);
         if (!subscriptionId || !paymentId) return ignored(body);

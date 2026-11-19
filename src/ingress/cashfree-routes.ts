@@ -7,6 +7,7 @@ import type { AppDeps } from '../deps.js';
 import { confirmPaidOrder, expireUnpaidOrder } from '../orders/checkout.js';
 import { parseCashfreeEvent, verifyCashfreeSignature } from '../payments/cashfree/webhook.js';
 import { findPaymentByProviderRef } from '../payments/payment-repo.js';
+import { onChargeResult } from '../subscriptions/charge-results.js';
 import { onSubscriptionStatus } from '../subscriptions/subscription-service.js';
 import { tenantById } from '../tenants/registry.js';
 
@@ -72,9 +73,9 @@ export function cashfreeRoutes(deps: AppDeps): Hono {
       } else if (event.type === 'subscription_status') {
         const result = await onSubscriptionStatus(deps, tenant, event.subscriptionId);
         deps.log.info({ tenantId, type: event.type, result }, 'cashfree subscription status handled');
-      } else {
-        // Charge results are handled in a later step.
-        deps.log.info({ tenantId, type: event.type }, 'cashfree subscription event received');
+      } else if (event.type === 'subscription_charge') {
+        const result = await onChargeResult(deps, tenant, event.subscriptionId, event.paymentId);
+        deps.log.info({ tenantId, type: event.type, result }, 'cashfree subscription charge handled');
       }
     } catch (err) {
       // Always ack after a verified-or-unverifiable handler failure so Cashfree does not retry forever; the customer can tap Help, and a reconcile job is a planned improvement (spec backlog #14).

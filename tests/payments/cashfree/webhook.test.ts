@@ -48,6 +48,7 @@ describe('parseCashfreeEvent', () => {
     const mk = (type: string) => ({ type, data: { subscription_id: 'sub1', payment_id: 'pay1' } });
     expect(parseCashfreeEvent(mk('SUBSCRIPTION_PAYMENT_SUCCESS'))).toEqual({ type: 'subscription_charge', subscriptionId: 'sub1', paymentId: 'pay1', success: true });
     expect(parseCashfreeEvent(mk('SUBSCRIPTION_PAYMENT_FAILED'))).toMatchObject({ type: 'subscription_charge', success: false });
+    expect(parseCashfreeEvent(mk('SUBSCRIPTION_PAYMENT_CANCELLED'))).toMatchObject({ type: 'subscription_charge', paymentId: 'pay1', success: false });
   });
   it('unknown or malformed input is ignored with a short raw and never throws', () => {
     const inputs: unknown[] = [

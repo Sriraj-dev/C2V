@@ -219,6 +219,15 @@ describe('POST /webhooks/cashfree', () => {
     expect(wa.sent).toHaveLength(1);
   });
 
+  it('signed charge success event confirms the upcoming subscription order', async () => {
+    const { raisedCharge, MON_23_10AM } = await import('../subscriptions/charge-fixture.js');
+    const { s: sub, payment, order } = await raisedCharge(db, { ...deps, now: () => MON_23_10AM }, tenant, pay, wa);
+    pay.charges.set(payment.id, 'SUCCESS');
+    const body = JSON.stringify({ type: 'SUBSCRIPTION_PAYMENT_SUCCESS', data: { subscription_id: sub.id, payment_id: payment.id } });
+    expect((await post(body)).status).toBe(200);
+    expect((await db.select().from(orders).where(eq(orders.id, order.id)))[0]!.status).toBe('confirmed');
+  });
+
   it('non-uuid subscription id -> 200 (unknown), no handler error', async () => {
     const body = JSON.stringify({
       type: 'SUBSCRIPTION_STATUS_CHANGED',
