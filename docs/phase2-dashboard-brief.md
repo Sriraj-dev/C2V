@@ -109,9 +109,19 @@ logged-in vendor's `tenant_id`. A C2V-operator (super-admin) view across tenants
   assigned to that partner. Partners can't cancel, refund, reassign or change their link or password.
 - Rate-limit `/p/*`, never log tokens, and use `Referrer-Policy: no-referrer` on the partner page.
 
-### 4.8 Hidden while subscriptions are on hold
-- Subscriptions screens (tables `subscriptions`, `subscription_items`, `payments.kind = subscription_charge`)
-  exist in the schema. Design so they can be added later, but don't build them now.
+### 4.8 Subscriptions (API ready 2026-11-19; contract `docs/admin-api.md` §10)
+- **Subscriptions list:** customer, packs summary, how often (`weekly` = every week, `biweekly` = every 2 weeks,
+  `monthly` = every 4 weeks) on the delivery weekday, next delivery, per-delivery total, status. Filter by status
+  (`pending_authorization` = waiting for AutoPay approval, `active`, `cancelled`, `authorization_failed`).
+- **Subscription detail:** address, packs at today's prices (flag hidden products: they are left out of charges),
+  and the charge history (delivery date, amount, status, link to the order). Button **Cancel subscription** with a
+  confirm dialog ("AutoPay stops; the next upcoming order is cancelled if not yet paid; paid orders stay").
+  Show 502 `provider_error` as "Cashfree didn't respond, nothing changed, try again".
+- **Orders:** subscription orders carry `source: 'subscription'` and `subscriptionId` (badge + link to the
+  subscription). They are `payment_pending` from two days before delivery ("Upcoming · AutoPay tomorrow"), become
+  `confirmed` when collected the day before, and only then appear in active orders. `paymentStatus` is the AutoPay
+  charge. Refund for a subscription order returns 422 `not_supported` for now: hide or disable the button.
+- **Customer detail:** also lists the customer's subscriptions.
 
 ## 5. Data model (Postgres, all money in integer paise)
 
@@ -124,7 +134,9 @@ logged-in vendor's `tenant_id`. A C2V-operator (super-admin) view across tenants
 | `delivery_partners` | id, tenant_id, name, phone, active |
 | `orders` | id, tenant_id, order_code (unique per tenant), customer_id, source (`one_time`/`subscription`), status, delivery_date, address (snapshot), location, pincode, subtotal/delivery_fee/total_paise, assigned_partner_id, paid_at, delivered_at, created_at, updated_at |
 | `order_items` | order_id, product_id, name + unit_price_paise (snapshots), quantity, line_total_paise, position |
-| `payments` | id, tenant_id, order_id, kind (`link`/`subscription_charge`), provider_ref (= order id for links), amount_paise, status, link_url, raw (jsonb), created_at |
+| `payments` | id, tenant_id, order_id, subscription_id, for_delivery_date, charge_items, kind (`link`/`subscription_charge`), provider_ref (= order id for links, = payment id for charges), amount_paise, status (incl. `cancelled`), link_url, raw (jsonb), created_at |
+| `subscriptions` | id, tenant_id, customer_id, status, frequency (`weekly`/`biweekly`/`monthly`), address, location, pincode, delivery_weekday, per_delivery_total_paise, next_delivery_date, cf ids, auth_token |
+| `subscription_items` | subscription_id, product_id, quantity (priced at current product prices on each charge) |
 | `messages` | id, tenant_id, customer_id, direction (`in`/`out`), wa_message_id, type, text, payload (jsonb), created_at |
 
 Order status enum: `payment_pending, confirmed, assigned, out_for_delivery, delivered, cancelled, payment_failed, expired`.

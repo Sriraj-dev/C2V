@@ -19,6 +19,8 @@ and Cashfree (KYC / production activation).
 - Delivery areas: pincodes and each pincode's delivery weekday. A short "we deliver to …" sentence.
 - Delivery partners: name and phone.
 - Message wording and tone (welcome, menu descriptions, confirmations). English only today.
+- Whether they want **subscriptions** (regular deliveries by UPI AutoPay). If yes, the subscription message
+  wording (summary, active, cancelled, skip replies) goes into the tenant copy as well.
 
 **Meta / WhatsApp** (the client owns these; we get access)
 - A Meta business portfolio for the client, **business verification** done.
@@ -31,7 +33,9 @@ and Cashfree (KYC / production activation).
 **Cashfree** (the client's own account; money settles to the client)
 - Cashfree Payment Gateway account with KYC complete, **Payment Links** enabled.
 - **Sandbox** App ID + Secret Key for testing, and later **production** App ID + Secret Key.
-- No dashboard webhook setup needed: each payment link carries our notify URL.
+- No dashboard webhook setup needed for one-time orders: each payment link carries our notify URL.
+- **For subscriptions:** Cashfree **Subscriptions** (UPI AutoPay) enabled on the account (sandbox and production),
+  and access to add a dashboard webhook (§6).
 
 Secrets (tokens, Cashfree keys) must reach us securely and go only into `.env.*` and Secret Manager.
 Never put them in chat, email threads or git.
@@ -49,11 +53,13 @@ Per tenant, using the tenant id in upper case as the prefix (example `GREENMILK`
 | `GREENMILK_CF_SECRET` | Cashfree Secret Key | same |
 | `GREENMILK_WA_PHONE_NUMBER_ID` *(optional)* | Only if you want an env override of the id in code (e.g. testing on another number) | `.env.*` |
 | `GREENMILK_WABA_ID` *(optional)* | Same as above | `.env.*` |
+| `GREENMILK_SUBSCRIBE_FLOW_ID` *(subscriptions)* | Published Subscribe Flow id (§5.6); empty = Subscribe says "coming soon". Read in the tenant config like nutrifarm's | `.env.*`, Cloud Run env var |
 
 Also add the names (no values) to `.env.example`.
 
 **Shared keys don't change** for a new tenant: `META_APP_SECRET` and `META_VERIFY_TOKEN` (one Meta app, C2V,
-for all tenants), `DATABASE_URL`, `PUBLIC_BASE_URL`, `CASHFREE_ENV`, `GRAPH_API_VERSION`.
+for all tenants), `DATABASE_URL`, `PUBLIC_BASE_URL`, `CASHFREE_ENV`, `GRAPH_API_VERSION`, `JOBS_SECRET` (one
+daily charge job runs every tenant).
 Note: `CASHFREE_ENV` is global, so all tenants are on sandbox or all on production at the same time.
 
 After adding secrets to Secret Manager, add them to the Cloud Run service's secret bindings
@@ -116,6 +122,11 @@ ENV=prod pnpm db:seed          # inserts the new tenant's rows (idempotent)
    `src/tenants/<id>/config.ts` → commit and redeploy. If Meta blocks publishing ("integrity requirements"),
    create it with `--draft` and publish later with `--flow-id <id>`.
 5. While the number is unverified or testing: Meta only delivers to numbers on the app's recipient list.
+6. **Subscriptions only:** `ENV=prod pnpm templates:create <id>` submits `subscription_upcoming_charge` and
+   `subscription_charge_failed` (register the tenant in `scripts/templates.ts` first); wait for both to be
+   APPROVED. Then `ENV=prod pnpm flows:publish <id> --kind subscribe` and set `<ID>_SUBSCRIBE_FLOW_ID` to the
+   printed id (Cloud Run `--update-env-vars`). Check account health in WhatsApp Manager first: a missing payment
+   method (141006) blocks templates and Flows from being sent.
 
 ---
 
@@ -125,6 +136,10 @@ ENV=prod pnpm db:seed          # inserts the new tenant's rows (idempotent)
   script's tenant if needed), then an end-to-end order with `checkout:test`.
 - Go-live: production keys into `.env.prod` + Secret Manager, `CASHFREE_ENV=production` (global, see §2).
   Make sure the client's Cashfree production account has Payment Links and refunds enabled.
+- **Subscriptions:** in the client's Cashfree dashboard (sandbox, and again production), Payment Gateway >
+  Developers > Webhooks > add `<PUBLIC_BASE_URL>/webhooks/cashfree` with the subscription events (runbook §6
+  step 5). Subscription updates only arrive through this dashboard webhook. The daily charge job (runbook §6a)
+  is shared: once the tenant is registered in `src/index.ts` and `scripts/run-jobs.ts` it is included.
 
 ---
 
@@ -134,7 +149,8 @@ ENV=prod pnpm db:seed          # inserts the new tenant's rows (idempotent)
 2. Smoke test from a real phone on the client's number:
    Hi → menu · Order → form → Pay → pay → confirmation (+ location request) · My Orders ·
    `ENV=prod pnpm orders <id> <code> assign <partnerPhone>` → `out-for-delivery` → `delivered` (template arrives) ·
-   refund a test order.
+   refund a test order · if subscriptions are on: runbook §7 steps 7–9 (subscribe, approve, upcoming message, skip,
+   collect, cancel).
 3. Check logs: `gcloud run services logs read c2v-bot --region asia-south1`. There should be no unknown-tenant or
    signature-failure warnings for the new number.
 4. **Create the vendor login** and hand it over: `ENV=prod pnpm vendors create <id> <username>` prints a generated
@@ -153,6 +169,8 @@ ENV=prod pnpm db:seed          # inserts the new tenant's rows (idempotent)
 - [ ] Shared egg-specific strings made per-tenant (if the client isn't an egg seller)
 - [ ] Seed run on prod (§4)
 - [ ] Number live + display name approved, WABA subscribed to C2V, `order_delivered` approved, Flow published (§5)
+- [ ] Subscriptions (if wanted): templates approved, Subscribe Flow published, `<ID>_SUBSCRIBE_FLOW_ID` set (§5.6),
+      Cashfree Subscriptions enabled and dashboard webhook added (§6)
 - [ ] Cashfree sandbox tested, then production keys (§6)
 - [ ] Deployed + smoke test passed (§7)
 - [ ] Vendor login created and handed over; partner links generated (§7)

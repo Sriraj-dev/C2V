@@ -1,7 +1,7 @@
 # C2V — Session Handoff (for Claude)
 
 > Purpose: if the working Claude session is lost, a new Claude session reads this file first and can
-> resume the project without re-asking settled questions. Last updated: **2026-11-15**.
+> resume the project without re-asking settled questions. Last updated: **2026-11-19**.
 > Keep it current: update the "Current state" and "Next steps" sections whenever a task finishes.
 
 ## 1. What the project is
@@ -26,6 +26,8 @@
    `.superpowers/sdd/2026-11-12-whatsapp-commerce-bot-phase1/progress.md` — per-task briefs, reports,
    reviews. Trust it and `git log` over memory.
 5. `docs/runbook.md`, `docs/inputs-needed.md`.
+6. Subscriptions: spec §10 (binding) and plan `docs/superpowers/plans/2026-11-18-subscriptions.md` (Tasks 1–10,
+   Task 11 refunds ON HOLD until the user asks). Executed natively (no subagents), one task per approval.
 
 ## 3. How the user wants to work (must follow)
 
@@ -60,7 +62,9 @@
   samples:send --to <phone> [--via test|bot] [--only ...] | cashfree:check create|status |
   checkout:test --to <phone> [--via test|bot] [--expiry-minutes N] |
   orders <tenant> <orderCode> assign <phone>|out-for-delivery|delivered|cancel|refund |
-  vendors create <tenantId> <username>|reset-password <username>|deactivate <username>|activate <username>`.
+  vendors create <tenantId> <username>|reset-password <username>|deactivate <username>|activate <username> |
+  orders <tenant> sub <subscriptionId> cancel | jobs:run [--now <ISO>] | templates:create <tenant> [--test-number] |
+  flows:publish <tenant> --kind order|subscribe | cashfree:subs-check`.
 - Local live testing: ngrok → port 8081; run
   `PORT=8081 NUTRIFARM_WA_PHONE_NUMBER_ID=1444268992103737 NUTRIFARM_WABA_ID=1170580189253457 npx tsx --env-file-if-exists=.env.dev src/index.ts`
   (points the bot at Meta's test number). ngrok URL changes per session → update `PUBLIC_BASE_URL` in `.env.dev`.
@@ -69,7 +73,12 @@
 
 ## 5. Architecture (short)
 
-- `src/ingress/` — `GET/POST /webhooks/whatsapp`, `POST /webhooks/cashfree`, `GET /health`.
+- `src/ingress/` — `GET/POST /webhooks/whatsapp`, `POST /webhooks/cashfree`, `GET /health`,
+  `GET /subscribe/:token` (AutoPay approval page), `POST /jobs/subscription-charges` (daily 09:00 IST, `x-jobs-secret`).
+- `src/subscriptions/` — create (mandate), status webhooks (activate / auth failed / remote cancel), daily charges
+  (`charges.ts`), skip and charge results (`charge-results.ts`), vendor cancel. Cashfree Subscriptions API `2026-01-01`;
+  subscription webhooks come only from the Cashfree **dashboard** webhook URL. Every handler re-fetches from Cashfree
+  and uses conditional updates (idempotent).
 - **Tenancy:** constant tenant config lives in code (`src/tenants/<id>/config.ts` + `copy.ts`), registered in
   `src/index.ts`. WhatsApp webhooks resolve the tenant by `phone_number_id`; Cashfree webhooks resolve it from
   the payment/subscription row, then verify the signature with *that tenant's* Cashfree secret. Both webhook
@@ -93,15 +102,19 @@
 - Meta app **"C2V"** receives WhatsApp webhooks for this product. The user's other product (**OMS**) uses a
   separate Meta app, so changing C2V's webhook never affects OMS.
 - Bot number **+1 555-749-4425**: phone_number_id 1414838555047142, WABA 2294321858083581 (Organic Nutri Farm
-  Messaging Account; account review APPROVED, business verified). Display name "Organic Nutri Farm" is still
-  `AVAILABLE_WITHOUT_REVIEW` → sending blocked (131037). **Will be replaced by a real number** the user adds.
+  Messaging Account; account review APPROVED, business verified). As of 2026-11-19: WABA health AVAILABLE, quality
+  GREEN, display name "Organic Nutri Farm" `AVAILABLE_WITHOUT_REVIEW`. **Will be replaced by a real number** (new
+  SIM) the user adds.
 - Meta test number +1 555-189-6159: phone_number_id 1444268992103737, WABA 1170580189253457
-  (`scripts/lib/meta-test-number.ts`). Free-form sends need the 24 h window.
-- Flows: `order_v1` 1140197861942511 (DRAFT, bot WABA), `order_v1_test` 1145033461233367 (test WABA).
-  Publishing blocked by Meta `139000/4233020 "Integrity requirements not met"`.
+  (`scripts/lib/meta-test-number.ts`). Free-form sends need the 24 h window. WABA health **BLOCKED 141006**
+  (no payment method) as of 2026-11-19 → templates/Flows can't be sent from it; the user will add a card.
+- Flows: `order_v1` 1140197861942511 (DRAFT, bot WABA; health AVAILABLE on 2026-11-19), `order_v1_test`
+  1145033461233367 and `subscribe_v1` 1528224862464264 (DRAFT, test WABA). Earlier publishing of `order_v1` failed
+  with `139000/4233020 "Integrity requirements not met"`; not retried (user: after the new number).
+- Subscription templates `subscription_upcoming_charge` / `subscription_charge_failed` (en, UTILITY) exist on
+  **both** WABAs, **PENDING** review as of 2026-11-19.
 - Templates on WABA 2294321858083581: `order_delivered` (id 1473962084845503, lang `en`, UTILITY,
-  "Your order {{1}} has been delivered. Thank you for ordering from Organic Nutri Farm! 🥚") — **PENDING**
-  approval as of 2026-11-15; `out_for_delivery_template` (APPROVED, en_US, not used yet — backlog #17).
+  "Your order {{1}} has been delivered. Thank you for ordering from Organic Nutri Farm! 🥚") — APPROVED; `out_for_delivery_template` (APPROVED, en_US, not used yet — backlog #17).
 - Cashfree: client's account; **sandbox** keys in `.env.dev` and (for now) `.env.prod`. Production keys at go-live.
 - Supabase project (Mumbai) — one DB for now.
 - Seed: support phone 918310901383; delivery partner Ravi 919398651343; products White Eggs 6/12/30 pack
@@ -112,7 +125,11 @@
 - Delivery fee ₹0; minimum order ₹90; no cutoff; ordering on the delivery weekday → next week's date.
 - BSUID-only customers (no phone) are asked for a mobile number in the order Flow.
 - My Orders shows "Payment pending" orders (with a reassurance note); hides expired/payment_failed.
-- **Subscriptions ON HOLD** (Task 13, subscription charges, subscription cancel). Schema/copy support them.
+- **Subscriptions (built 2026-11-18/19, branch `feat/subscriptions`):** weekly / every 2 weeks / every 4 weeks; on-demand
+  UPI AutoPay, mandate max 2 × per delivery; order created D-2 (`payment_pending`), charged D-1, confirmed on collection
+  (no customer message); **Skip** button decided by Cashfree's cancel result + re-fetch (already collected → "already
+  paid, contact us"; vendor refunds); **daily** charge job 09:00 IST with 3 in-run attempts, next day retries, charge at
+  activation when the first delivery is already due; vendor-only cancel; subscription refunds ON HOLD (Task 11).
 - Pending-payment reconcile job deferred (backlog #14). Expired links are handled by Cashfree's EXPIRED webhook.
 - No email alert for "refund needed"; instead a **Needs refund** list in the Phase 2 dashboard.
 - Out-for-delivery customer message deferred (backlog #17).
@@ -154,8 +171,17 @@ partner link generated. Operator CLI: `pnpm vendors create|reset-password|deacti
 
 Subscribe menu item now replies "under development, coming soon" (subscriptions on hold). Dashboard auth preference: operator-generated username + password per client, no Google auth (see brief §7). Fourth doc: `docs/client-onboarding.md`.
 
+**Subscriptions (2026-11-18/19):** branch `feat/subscriptions`, Tasks 1–9 committed and pushed (fcadfc6 docs · 3e36042 T1 ·
+e2bb2e9 T2 · cecc1b8 T3 · 38c8208 T4 · 161a810 T5 · 5301546 T6 · c3376d6 T7 · eabfda4 T8 · b908d53 T9); Task 10 docs
+done; Task 10 live run waits for template approval and the new number. Migration `0005` applied. Sandbox test
+subscription 5bd86c40-e99f-4278-ada4-2d02e30e46b1 (ACTIVE, weekly Monday) has a charge collecting **2026-11-22** for
+order NF-8UUXE7 (the bot must be running with ngrok to confirm it); order NF-KJS8JK was skipped live.
+
 ## 10. Next steps
 
+-1. **Subscriptions:** after templates are approved and the new number is live: Task 10 live run with the user
+   (runbook §7 steps 7–9), Cloud Scheduler job (runbook §6a), Cashfree production dashboard webhook. Then merge
+   `feat/subscriptions`. Task 11 (subscription refunds) only when the user asks.
 0. **Admin API:** final whole-branch review of `feat/admin-api`, then merge; build the dashboard in the separate
    repo `C2V_AdminDashboard` (it calls the admin API from its server side, `lib/api`, bearer token in an httpOnly
    cookie; see `docs/phase2-dashboard-brief.md`); then Task 16 cloud deploy (below).
@@ -169,4 +195,4 @@ Subscribe menu item now replies "under development, coming soon" (subscriptions 
 3. The user has "a few things to add" after Task 16 — ask for them.
 4. Phase 2 dashboard (separate session; brief in `docs/phase2-dashboard-brief.md`).
 5. Backlog: spec §9 (human takeover, backups, paid-after-close message + refund, reconcile job,
-   out-for-delivery template, subscriptions, ...).
+   out-for-delivery template, `order_confirmed` template for subscription orders, ...).
