@@ -62,8 +62,8 @@ export interface TenantConfig {
   /** Name of the env var holding this tenant's WhatsApp access token. */
   waTokenEnv: string;
   cashfree: { appIdEnv: string; secretEnv: string };
-  /** `subscribeFlowDraft` sends the subscribe Flow in draft mode (dev testing before it is published). */
-  flows: { orderFlowId: string; subscribeFlowId: string; subscribeFlowDraft?: boolean };
+  /** `*FlowDraft` sends that Flow in draft mode (testing before it is published). */
+  flows: { orderFlowId: string; orderFlowDraft?: boolean; subscribeFlowId: string; subscribeFlowDraft?: boolean };
   orderCodePrefix: string;
   paymentLinkExpiryMinutes: number;
   subscriptionChargeLeadDays: number;

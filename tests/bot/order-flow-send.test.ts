@@ -43,6 +43,15 @@ describe('sendOrderFlow', () => {
     expect(data.prefill_landmark).toBe('');
   });
 
+  it('sends a draft order flow in draft mode, a published one without mode', async () => {
+    await seedProduct(db, 'test');
+    const customer = await seedCustomer(db, 'test', { waId: '919811112222' });
+    await sendOrderFlow(deps, testTenant({ flows: { orderFlowId: 'flow-order', orderFlowDraft: true, subscribeFlowId: '' } }), customer);
+    await sendOrderFlow(deps, testTenant(), customer);
+    expect((wa.sent[0]!.message as any).interactive.action.parameters.mode).toBe('draft');
+    expect((wa.sent[1]!.message as any).interactive.action.parameters.mode).toBeUndefined();
+  });
+
   it('falls back to the menu when orderFlowId is empty', async () => {
     await seedProduct(db, 'test');
     const customer = await seedCustomer(db, 'test', { waId: '919811112222' });

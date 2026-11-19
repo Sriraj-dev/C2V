@@ -9,10 +9,12 @@ export const nutrifarm: TenantConfig = {
   wabaId: process.env.NUTRIFARM_WABA_ID || '2294321858083581',
   waTokenEnv: 'NUTRIFARM_WA_TOKEN',
   cashfree: { appIdEnv: 'NUTRIFARM_CF_APP_ID', secretEnv: 'NUTRIFARM_CF_SECRET' },
-  // order_v1 created 2026-11-13 on WABA 2294321858083581; still DRAFT (publish blocked by Meta, 139000/4233020).
-  // Subscribe Flow: set in .env while it is a draft on the test number; production id added when published.
+  // Flows belong to a WABA, so each number's ids come from .env (+91 number since 2026-11-19).
+  // Fallback order_v1 is the old +1 555 WABA's draft (publish blocked by Meta, 139000/4233020).
+  // *_DRAFT=1 sends a Flow in draft mode until it is published.
   flows: {
-    orderFlowId: '1140197861942511',
+    orderFlowId: process.env.NUTRIFARM_ORDER_FLOW_ID || '1140197861942511',
+    orderFlowDraft: process.env.NUTRIFARM_ORDER_FLOW_DRAFT === '1',
     subscribeFlowId: process.env.NUTRIFARM_SUBSCRIBE_FLOW_ID || '',
     subscribeFlowDraft: process.env.NUTRIFARM_SUBSCRIBE_FLOW_DRAFT === '1',
   },

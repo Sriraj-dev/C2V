@@ -49,6 +49,7 @@ export async function sendOrderFlow(deps: AppDeps, tenant: TenantConfig, custome
       cta: 'Order now',
       screen: 'PRODUCTS',
       data,
+      ...(tenant.flows.orderFlowDraft ? { mode: 'draft' as const } : {}),
     }),
     body,
   );
